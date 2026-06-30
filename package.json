@@ -1,0 +1,493 @@
+{
+  "name": "sponzey-skills-manager",
+  "version": "0.0.0",
+  "publisher": "atomsoft",
+  "private": true,
+  "type": "module",
+  "description": "VSCode extension for managing Agent Skills repositories and targets.",
+  "icon": "media/sponzey-skills-icon.png",
+  "main": "./src/extension.js",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/check-architecture.mjs && node scripts/check-extension-manifest.mjs && node scripts/build-smoke.mjs",
+    "check:architecture": "node scripts/check-architecture.mjs",
+    "check:manifest": "node scripts/check-extension-manifest.mjs",
+    "release:gate": "node scripts/release-gate.mjs",
+    "run:extension-host": "scripts/run-vscode-extension-host.sh"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "sponzeySkills.setMainRepository",
+        "title": "Sponzey Skills: Set Main Repository",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "sponzeySkills.removeMainRepository",
+        "title": "Sponzey Skills: Remove Main Repository",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.addGlobalRepository",
+        "title": "Sponzey Skills: Add Global Repository",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sponzeySkills.removeGlobalRepository",
+        "title": "Sponzey Skills: Remove Global Repository",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.addProjectRepository",
+        "title": "Sponzey Skills: Add Project Repository",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sponzeySkills.removeProjectRepository",
+        "title": "Sponzey Skills: Remove Project Repository",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.openMainRepository",
+        "title": "Sponzey Skills: Open Main Repository",
+        "icon": "$(repo)"
+      },
+      {
+        "command": "sponzeySkills.openSourceFolder",
+        "title": "Sponzey Skills: Open Source Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "sponzeySkills.openTargetFolder",
+        "title": "Sponzey Skills: Open Target Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "sponzeySkills.openSkillMd",
+        "title": "Sponzey Skills: Open SKILL.md",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "sponzeySkills.refreshSkills",
+        "title": "Sponzey Skills: Refresh Skills",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sponzeySkills.createSkill",
+        "title": "Sponzey Skills: Create Skill",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "sponzeySkills.importSkill",
+        "title": "Sponzey Skills: Import Skill to Main Repository",
+        "icon": "$(add)"
+      },
+      {
+        "command": "sponzeySkills.installSkill",
+        "title": "Sponzey Skills: Install Skill from URL or Path",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "sponzeySkills.showSkillDetail",
+        "title": "Sponzey Skills: Show Skill Detail",
+        "icon": "$(info)"
+      },
+      {
+        "command": "sponzeySkills.analyzeAllSkills",
+        "title": "Sponzey Skills: Analyze All Skills",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "sponzeySkills.applySkillToGlobalTarget",
+        "title": "Sponzey Skills: Apply Skill to Global Target",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "sponzeySkills.applySkillToProjectTarget",
+        "title": "Sponzey Skills: Apply Skill to Project Target",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "sponzeySkills.removeAppliedSkill",
+        "title": "Sponzey Skills: Remove Applied Skill",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.updateAppliedCopyFromSource",
+        "title": "Sponzey Skills: Update Applied Copy from Source",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "sponzeySkills.convertAppliedSkillMode",
+        "title": "Sponzey Skills: Convert Applied Skill Mode",
+        "icon": "$(replace)"
+      },
+      {
+        "command": "sponzeySkills.copyAppliedSkillToMainRepository",
+        "title": "Sponzey Skills: Copy Applied Skill to Main Repository",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "sponzeySkills.backupAppliedSkillToMainRepository",
+        "title": "Sponzey Skills: Backup Applied Skill to Main Repository",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "sponzeySkills.moveAppliedSkillToMainRepository",
+        "title": "Sponzey Skills: Move Applied Skill to Main Repository",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "sponzeySkills.renameSourceSkill",
+        "title": "Sponzey Skills: Rename Source Skill",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "sponzeySkills.deleteSourceSkill",
+        "title": "Sponzey Skills: Delete Source Skill",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.exportSourceSkill",
+        "title": "Sponzey Skills: Export Source Skill",
+        "icon": "$(file-zip)"
+      },
+      {
+        "command": "sponzeySkills.importSkillArchive",
+        "title": "Sponzey Skills: Import Skill Archive",
+        "icon": "$(file-zip)"
+      },
+      {
+        "command": "sponzeySkills.listSkillBackups",
+        "title": "Sponzey Skills: List Skill Backups",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "sponzeySkills.promoteBackupToSkillSource",
+        "title": "Sponzey Skills: Promote Backup to Skill Source",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "sponzeySkills.deleteBackup",
+        "title": "Sponzey Skills: Delete Backup",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "sponzeySkills.showDiagnostics",
+        "title": "Sponzey Skills: Show Diagnostics",
+        "icon": "$(warning)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sponzeySkills",
+          "title": "Sponzey Skills",
+          "icon": "media/sponzey-skills.svg"
+        }
+      ]
+    },
+    "views": {
+      "sponzeySkills": [
+        {
+          "id": "sponzeySkills.mainRepository",
+          "name": "Main Repository"
+        },
+        {
+          "id": "sponzeySkills.globalSkills",
+          "name": "Global Skills"
+        },
+        {
+          "id": "sponzeySkills.projectSkills",
+          "name": "Project Skills",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "id": "sponzeySkills.diagnostics",
+          "name": "Diagnostics"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "sponzeySkills.refreshSkills",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.importSkill",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.installSkill",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sponzeySkills.importSkillArchive",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@3"
+        },
+        {
+          "command": "sponzeySkills.analyzeAllSkills",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@4"
+        },
+        {
+          "command": "sponzeySkills.listSkillBackups",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@5"
+        },
+        {
+          "command": "sponzeySkills.setMainRepository",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@6"
+        },
+        {
+          "command": "sponzeySkills.removeMainRepository",
+          "when": "view == sponzeySkills.mainRepository",
+          "group": "navigation@7"
+        },
+        {
+          "command": "sponzeySkills.refreshSkills",
+          "when": "view == sponzeySkills.globalSkills",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.addGlobalRepository",
+          "when": "view == sponzeySkills.globalSkills",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.removeGlobalRepository",
+          "when": "view == sponzeySkills.globalSkills",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sponzeySkills.refreshSkills",
+          "when": "view == sponzeySkills.projectSkills",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.addProjectRepository",
+          "when": "view == sponzeySkills.projectSkills",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.removeProjectRepository",
+          "when": "view == sponzeySkills.projectSkills",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sponzeySkills.refreshSkills",
+          "when": "view == sponzeySkills.diagnostics",
+          "group": "navigation@0"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sponzeySkills.applySkillToGlobalTarget",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.showSkillDetail",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.openSkillMd",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "open@1"
+        },
+        {
+          "command": "sponzeySkills.openSourceFolder",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "open@2"
+        },
+        {
+          "command": "sponzeySkills.applySkillToProjectTarget",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sponzeySkills.renameSourceSkill",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "source@1"
+        },
+        {
+          "command": "sponzeySkills.exportSourceSkill",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "source@2"
+        },
+        {
+          "command": "sponzeySkills.deleteSourceSkill",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillSource",
+          "group": "source@3"
+        },
+        {
+          "command": "sponzeySkills.promoteBackupToSkillSource",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
+          "group": "backup@1"
+        },
+        {
+          "command": "sponzeySkills.deleteBackup",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
+          "group": "backup@2"
+        },
+        {
+          "command": "sponzeySkills.removeAppliedSkill",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.showSkillDetail",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.openTargetFolder",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "open@1"
+        },
+        {
+          "command": "sponzeySkills.updateAppliedCopyFromSource",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "sync@1"
+        },
+        {
+          "command": "sponzeySkills.convertAppliedSkillMode",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "sync@2"
+        },
+        {
+          "command": "sponzeySkills.copyAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@1"
+        },
+        {
+          "command": "sponzeySkills.backupAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@2"
+        },
+        {
+          "command": "sponzeySkills.moveAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@3"
+        },
+        {
+          "command": "sponzeySkills.removeAppliedSkill",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.showSkillDetail",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.openTargetFolder",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "open@1"
+        },
+        {
+          "command": "sponzeySkills.updateAppliedCopyFromSource",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "sync@1"
+        },
+        {
+          "command": "sponzeySkills.convertAppliedSkillMode",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "sync@2"
+        },
+        {
+          "command": "sponzeySkills.copyAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@1"
+        },
+        {
+          "command": "sponzeySkills.backupAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@2"
+        },
+        {
+          "command": "sponzeySkills.moveAppliedSkillToMainRepository",
+          "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
+          "group": "transfer@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Sponzey Skills",
+      "properties": {
+        "sponzeySkills.mainRepositoryPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Local directory used as the Main Repository for source skills. When empty, the extension creates and uses `~/SponzeySkills` before commands that require a Main Repository."
+        },
+        "sponzeySkills.enabledClients": {
+          "type": "array",
+          "default": [
+            "codex"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Agent client identifiers enabled for repository target discovery."
+        },
+        "sponzeySkills.globalTargets": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "markdownDescription": "Global target repositories where skills can be applied."
+        },
+        "sponzeySkills.projectTargetPatterns": {
+          "type": "array",
+          "default": [
+            ".agents/skills"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Workspace-relative target repository patterns used for project skill targets."
+        },
+        "sponzeySkills.defaultApplyMode": {
+          "type": "string",
+          "default": "copy",
+          "enum": [
+            "copy",
+            "symlink"
+          ],
+          "markdownDescription": "Default mode used when applying a source skill to a target repository."
+        },
+        "sponzeySkills.riskPolicy": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": true,
+          "markdownDescription": "Risk policy options used by skill analysis and apply guards."
+        },
+        "sponzeySkills.backupPolicy": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": true,
+          "markdownDescription": "Backup policy options used by transfer and snapshot workflows."
+        },
+        "sponzeySkills.loggingPolicy": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": true,
+          "markdownDescription": "Logging policy options for Product Log, Field Debug Log, and Development Log routing."
+        }
+      }
+    }
+  },
+  "engines": {
+    "vscode": "^1.95.0",
+    "node": ">=22.0.0"
+  }
+}
