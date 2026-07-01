@@ -3,6 +3,44 @@ const DEFAULT_PROJECT_TARGET_PATTERNS = Object.freeze({
   claude: ".claude/skills",
 });
 
+const SUPPORTED_DIAGNOSTIC_ACTION_CHOICES = Object.freeze([
+  {
+    code: "open-skill-md",
+    label: "Open SKILL.md",
+    description: "Open the source skill file.",
+  },
+  {
+    code: "analyze-again",
+    label: "Analyze Again",
+    description: "Run skill analysis again.",
+  },
+  {
+    code: "compare-backup",
+    label: "Compare Backup",
+    description: "Compare a backup snapshot with a reference folder.",
+  },
+  {
+    code: "restore-backup",
+    label: "Restore Backup",
+    description: "Restore a backup snapshot to a selected target.",
+  },
+  {
+    code: "delete-backup",
+    label: "Delete Backup",
+    description: "Delete a backup snapshot.",
+  },
+  {
+    code: "set-main-repository",
+    label: "Set Main Repository",
+    description: "Choose the Main Repository path.",
+  },
+  {
+    code: "apply-skill-to-target",
+    label: "Apply Skill to Target",
+    description: "Apply this skill after explicit confirmation.",
+  },
+]);
+
 export async function collectCommandInput({
   commandId,
   input = {},
@@ -115,6 +153,19 @@ export async function collectCommandInput({
     return collectImportSkillArchiveInput({ commandId, input, window });
   }
 
+  if (commandId === "sponzeySkills.compareSkillBackup") {
+    return collectCompareBackupInput({ commandId, input, window });
+  }
+
+  if (commandId === "sponzeySkills.restoreBackupToTarget") {
+    return collectRestoreBackupInput({
+      commandId,
+      input,
+      window,
+      loadReadModel,
+    });
+  }
+
   if (commandId === "sponzeySkills.promoteBackupToSkillSource") {
     return collectPromoteBackupInput({ commandId, input, window });
   }
@@ -167,6 +218,10 @@ export async function collectCommandInput({
       window,
       loadReadModel,
     });
+  }
+
+  if (commandId === "sponzeySkills.runDiagnosticAction") {
+    return collectDiagnosticActionInput({ commandId, input, window });
   }
 
   return {
@@ -642,6 +697,120 @@ async function collectSkillDetailInput({
   };
 }
 
+async function collectDiagnosticActionInput({ commandId, input, window }) {
+  const nextInput = { ...input };
+
+  if (!hasText(nextInput.actionCode)) {
+    const actionChoices = supportedDiagnosticActionChoices(
+      nextInput.diagnosticActions,
+    );
+    if (actionChoices.length === 0) {
+      return unavailable(
+        commandId,
+        "No supported diagnostic actions are available.",
+      );
+    }
+
+    const actionChoice = await chooseRequiredQuickPick({
+      commandId,
+      window,
+      items: actionChoices,
+      placeHolder: "Select diagnostic action",
+      unavailableMessage: "No supported diagnostic actions are available.",
+    });
+
+    if (!actionChoice.ok) {
+      return actionChoice;
+    }
+
+    nextInput.actionCode = actionChoice.choice.value;
+  }
+
+  if (
+    diagnosticActionRequiresConfirmation({
+      actionCode: nextInput.actionCode,
+      diagnosticActions: nextInput.diagnosticActions,
+    }) &&
+    nextInput.confirmationProvided !== true
+  ) {
+    const confirmationItems = diagnosticActionConfirmationItems(
+      nextInput.actionCode,
+    );
+    const confirmationChoice = await showQuickPick({
+      window,
+      items: confirmationItems,
+      placeHolder: "Confirm diagnostic action",
+    });
+
+    if (confirmationChoice === undefined || confirmationChoice.value !== true) {
+      return cancelled(commandId);
+    }
+
+    nextInput.confirmationProvided = true;
+  }
+
+  return {
+    ok: true,
+    input: nextInput,
+  };
+}
+
+function diagnosticActionConfirmationItems(actionCode) {
+  if (actionCode === "apply-skill-to-target") {
+    return [
+      {
+        label: "Confirm Apply",
+        description: "Apply this skill to a selected target.",
+        value: true,
+      },
+      {
+        label: "Cancel",
+        value: false,
+      },
+    ];
+  }
+
+  if (actionCode === "restore-backup") {
+    return [
+      {
+        label: "Confirm Restore Backup",
+        description: "Restore this backup snapshot to a selected target.",
+        value: true,
+      },
+      {
+        label: "Cancel",
+        value: false,
+      },
+    ];
+  }
+
+  if (actionCode === "delete-backup") {
+    return [
+      {
+        label: "Confirm Delete Backup",
+        description: "Delete this backup snapshot.",
+        value: true,
+      },
+      {
+        label: "Cancel",
+        value: false,
+      },
+    ];
+  }
+
+  return [
+    {
+      label: "Confirm Action",
+      description: "Run this diagnostic action.",
+      value: true,
+    },
+    {
+      label: "Cancel",
+      value: false,
+    },
+  ];
+}
+
 async function collectUpdateAppliedCopyInput({
   commandId,
   input,
@@ -961,6 +1130,143 @@ async function collectPromoteBackupInput({ commandId, input, window }) {
     }
 
     nextInput.skillName = skillName;
+  }
+
+  return {
+    ok: true,
+    input: nextInput,
+  };
+}
+
+async function collectCompareBackupInput({ commandId, input, window }) {
+  const nextInput = { ...input };
+
+  if (!hasText(nextInput.backupPath) && !hasText(nextInput.backup?.backupPath)) {
+    const backupPath = await showFolderOpenDialog({
+      window,
+      openLabel: "Select Backup Snapshot",
+    });
+
+    if (backupPath === undefined) {
+      return cancelled(commandId);
+    }
+
+    nextInput.backupPath = backupPath;
+  }
+
+  if (!hasText(nextInput.referencePath)) {
+    const referencePath = await showFolderOpenDialog({
+      window,
+      openLabel: "Select Reference Skill Folder",
+    });
+
+    if (referencePath === undefined) {
+      return cancelled(commandId);
+    }
+
+    nextInput.referencePath = referencePath;
+  }
+
+  return {
+    ok: true,
+    input: nextInput,
+  };
+}
+
+async function collectRestoreBackupInput({
+  commandId,
+  input,
+  window,
+  loadReadModel,
+}) {
+  const nextInput = { ...input };
+  let readModelResult = null;
+
+  async function readModel() {
+    if (readModelResult === null) {
+      readModelResult = await loadApplyReadModel({ commandId, loadReadModel });
+    }
+    return readModelResult;
+  }
+
+  if (!hasBackup(nextInput.backup) && !hasText(nextInput.backupPath)) {
+    const modelResult = await readModel();
+    if (modelResult?.ok === false) {
+      return modelResult;
+    }
+
+    const backupChoice = await chooseRequiredQuickPick({
+      commandId,
+      window,
+      items: backupSnapshotChoices(modelResult.value),
+      placeHolder: "Select backup snapshot to restore",
+      unavailableMessage: "No backup snapshots are available.",
+    });
+
+    if (!backupChoice.ok) {
+      return backupChoice;
+    }
+
+    nextInput.backup = backupChoice.choice.value.backup;
+  }
+
+  if (!hasTarget(nextInput.target)) {
+    const modelResult = await readModel();
+    if (modelResult?.ok === false) {
+      return modelResult;
+    }
+
+    const targetChoice = await chooseRequiredQuickPick({
+      commandId,
+      window,
+      items: removableTargetChoices(modelResult.value),
+      placeHolder: "Select target to restore backup to",
+      unavailableMessage: "No skill targets are available.",
+    });
+
+    if (!targetChoice.ok) {
+      return targetChoice;
+    }
+
+    nextInput.target = targetChoice.choice.value.target;
+  }
+
+  if (
+    !hasText(nextInput.skillName) &&
+    !hasText(nextInput.backup?.skillName)
+  ) {
+    const skillName = await showInputBox({
+      window,
+      prompt: "Restored skill name",
+      placeHolder: "skill-name",
+      value: basenameFromPath(nextInput.backupPath ?? nextInput.backup?.backupPath),
+    });
+
+    if (skillName === undefined) {
+      return cancelled(commandId);
+    }
+
+    nextInput.skillName = skillName;
+  }
+
+  if (nextInput.overwriteConfirmed !== true) {
+    const overwriteChoice = await showQuickPick({
+      window,
+      items: [
+        {
+          label: "Restore and overwrite target if needed",
+          value: true,
+        },
+        { label: "Cancel", value: false },
+      ],
+      placeHolder: "Restore backup and overwrite target if it exists?",
+    });
+
+    if (overwriteChoice === undefined || overwriteChoice.value !== true) {
+      return cancelled(commandId);
+    }
+
+    nextInput.overwriteConfirmed = true;
   }
 
   return {
@@ -1691,6 +1997,44 @@ function hasDiagnostic(diagnostic) {
   );
 }
 
+function supportedDiagnosticActionChoices(diagnosticActions) {
+  const allowed = actionCodeSet(diagnosticActions?.allowedActionCodes);
+  const blocked = actionCodeSet(diagnosticActions?.blockedActionCodes);
+  const confirmationRequired = actionCodeSet(
+    diagnosticActions?.confirmationRequiredActionCodes,
+  );
+
+  return SUPPORTED_DIAGNOSTIC_ACTION_CHOICES.filter((action) => {
+    return (
+      allowed.has(action.code) &&
+      !blocked.has(action.code)
+    );
+  }).map((action) => ({
+    label: action.label,
+    description: confirmationRequired.has(action.code)
+      ? `${action.description} Confirmation required.`
+      : action.description,
+    value: action.code,
+  }));
+}
+
+function diagnosticActionRequiresConfirmation({
+  actionCode,
+  diagnosticActions,
+}) {
+  return actionCodeSet(
+    diagnosticActions?.confirmationRequiredActionCodes,
+  ).has(actionCode);
+}
+
+function actionCodeSet(values) {
+  return new Set(
+    (Array.isArray(values) ? values : []).filter(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ),
+  );
+}
+
 function sourceAppliedTargetCount(source) {
   if (typeof source?.appliedTargetCount === "number") {
     return source.appliedTargetCount;
@@ -1842,6 +2186,17 @@ function appliedSkillChoices(group) {
       status: skill.status,
       targetPath: skill.targetPath,
       sourceId: skill.sourceId,
+    },
+  }));
+}
+
+function backupSnapshotChoices(readModel) {
+  return (readModel?.backups ?? []).map((backup) => ({
+    label: `${backup.skillName}:${backup.snapshotId}`,
+    description: backup.createdAt ?? "Backup Snapshot",
+    detail: backup.backupPath,
+    value: {
+      backup,
     },
   }));
 }

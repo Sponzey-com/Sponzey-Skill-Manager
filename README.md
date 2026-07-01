@@ -74,8 +74,39 @@ Run:
 ```sh
 npm test
 npm run build
+npm run check:vsix-candidate
 npm run release:gate
 ```
+
+`npm run check:vsix-candidate` checks for a local `node_modules/.bin/vsce` packaging tool without installing anything. `PackagingToolMissing` means local VSIX packaging is skipped until `@vscode/vsce` is available as a dev dependency.
+
+Use:
+
+```sh
+npm run package:vsix-candidate
+```
+
+to create a local `.vsix` candidate in `.dist/` when the local packaging tool is already installed.
+
+## GitHub Tag Release
+
+The `Release VSIX` GitHub Actions workflow runs when a version tag is pushed. The tag base must match `package.json` version with a `v` prefix.
+
+Use a release tag to build the VSIX and register it in GitHub Release. For version `0.1.0`, use:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Use a build-only tag to build the VSIX without registering it in GitHub Release. For version `0.1.0`, use:
+
+```sh
+git tag v0.1.0a
+git push origin v0.1.0a
+```
+
+The workflow installs a local `@vscode/vsce` packaging tool in the GitHub runner, runs `npm run release:gate`, runs `npm run package:vsix-candidate`, and uploads the `.vsix` as a workflow artifact. Tags like `v0.1.0` also register the `.vsix` in the matching GitHub Release. Tags like `v0.1.0a` are build-only and skip GitHub Release registration.
 
 Use:
 

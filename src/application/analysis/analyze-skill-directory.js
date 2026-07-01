@@ -1,4 +1,7 @@
-import { createBuiltInAnalyzerPolicyPack } from "../../domain/index.js";
+import {
+  createBuiltInAnalyzerPolicyPack,
+  suggestRemediationActions,
+} from "../../domain/index.js";
 
 const RISK_ORDER = {
   low: 0,
@@ -401,14 +404,19 @@ function normalizePolicyDiagnostics({ diagnostics, policyPack }) {
 
   return diagnostics.map((diagnostic) => {
     const rule = ruleByCode.get(diagnostic.code);
+    const remediationActions = suggestRemediationActions({ diagnostic });
     if (!rule) {
-      return diagnostic;
+      return {
+        ...diagnostic,
+        ...remediationActions,
+      };
     }
 
     return {
       ...diagnostic,
       policyRuleCode: rule.code,
       policyVersion: policyPack.version,
+      ...remediationActions,
     };
   });
 }

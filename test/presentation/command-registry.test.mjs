@@ -107,6 +107,74 @@ test("use case command handlers pass create arguments as input DTO", async () =>
   ]);
 });
 
+test("use case command handlers map backup compare command to compare use case", async () => {
+  const calls = [];
+  const handlers = createUseCaseCommandHandlers({
+    async getContext() {
+      return { mainRepositoryPath: "/repo" };
+    },
+    useCases: {
+      async compareSkillBackup(input) {
+        calls.push(input);
+        return { ok: true };
+      },
+    },
+  });
+
+  await handlers["sponzeySkills.compareSkillBackup"]({
+    backupPath: "/repo/backups/alpha/snapshot-001",
+    referencePath: "/repo/skills/alpha",
+  });
+
+  assert.deepEqual(calls, [
+    {
+      context: { mainRepositoryPath: "/repo" },
+      input: {
+        backupPath: "/repo/backups/alpha/snapshot-001",
+        referencePath: "/repo/skills/alpha",
+      },
+    },
+  ]);
+});
+
+test("use case command handlers map backup restore command to restore use case", async () => {
+  const calls = [];
+  const handlers = createUseCaseCommandHandlers({
+    async getContext() {
+      return { mainRepositoryPath: "/repo" };
+    },
+    useCases: {
+      async restoreBackupToTarget(input) {
+        calls.push(input);
+        return { ok: true };
+      },
+    },
+  });
+
+  await handlers["sponzeySkills.restoreBackupToTarget"]({
+    backupPath: "/repo/backups/alpha/snapshot-001",
+    target: {
+      id: "global:codex",
+      targetPath: "/global",
+    },
+    overwriteConfirmed: true,
+  });
+
+  assert.deepEqual(calls, [
+    {
+      context: { mainRepositoryPath: "/repo" },
+      input: {
+        backupPath: "/repo/backups/alpha/snapshot-001",
+        target: {
+          id: "global:codex",
+          targetPath: "/global",
+        },
+        overwriteConfirmed: true,
+      },
+    },
+  ]);
+});
+
 test("use case command handlers return typed result when use case is not wired", async () => {
   const handlers = createUseCaseCommandHandlers({
     async getContext() {

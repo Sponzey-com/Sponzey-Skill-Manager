@@ -3,6 +3,44 @@ import assert from "node:assert/strict";
 
 import { analyzeSkillDirectory } from "../../src/application/analysis/analyze-skill-directory.js";
 
+const SAFE_ANALYZER_ACTIONS = [
+  {
+    code: "open-skill-md",
+    sideEffect: "open-file",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "safe",
+  },
+  {
+    code: "analyze-again",
+    sideEffect: "analysis-refresh",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "safe",
+  },
+];
+
+const CRITICAL_BLOCKED_ACTIONS = [
+  {
+    code: "apply-skill-to-target",
+    reason: "critical-risk-blocked",
+    mutatesTarget: true,
+    requiresConfirmation: false,
+    safety: "blocked",
+  },
+];
+
+const HIGH_RISK_ALLOWED_ACTIONS = [
+  ...SAFE_ANALYZER_ACTIONS,
+  {
+    code: "apply-skill-to-target",
+    sideEffect: "target-write",
+    mutatesTarget: true,
+    requiresConfirmation: true,
+    safety: "confirmation-required",
+  },
+];
+
 test("valid minimal skill returns low risk and completed steps", () => {
   const result = analyzeSkillDirectory({
     directoryName: "code-reviewer",
@@ -50,6 +88,8 @@ test("missing SKILL.md returns critical diagnostic", () => {
         riskLevel: "critical",
         message: "Skill directory must contain SKILL.md.",
         recommendation: "Add a SKILL.md file at the root of the skill directory.",
+        allowedActions: SAFE_ANALYZER_ACTIONS,
+        blockedActions: CRITICAL_BLOCKED_ACTIONS,
       },
   ]);
   assert.deepEqual(result.steps, ["LoadingSkillDirectory", "MissingSkillMd"]);
@@ -69,6 +109,8 @@ test("missing description returns high diagnostic", () => {
   assert.equal(result.diagnostics[0].code, "missing-description");
   assert.equal(result.diagnostics[0].category, "quality");
   assert.equal(result.diagnostics[0].severity, "high");
+  assert.deepEqual(result.diagnostics[0].allowedActions, HIGH_RISK_ALLOWED_ACTIONS);
+  assert.deepEqual(result.diagnostics[0].blockedActions, []);
 });
 
 test("critical destructive patterns are detected without logging body text", () => {
@@ -123,6 +165,8 @@ test("analyzer returns built-in policy metadata for destructive policy findings"
   assert.equal(diagnostic.category, "security");
   assert.equal(diagnostic.severity, "critical");
   assert.equal(diagnostic.riskLevel, "critical");
+  assert.deepEqual(diagnostic.allowedActions, SAFE_ANALYZER_ACTIONS);
+  assert.deepEqual(diagnostic.blockedActions, CRITICAL_BLOCKED_ACTIONS);
   assert.equal(
     result.policyRuleCodes.includes("destructive-rm-rf"),
     true,
@@ -169,6 +213,18 @@ test("dependency declarations normalize tool runtime mcp and network categories"
     ).dependencyCategories,
     ["mcp", "network", "runtime", "tool"],
   );
+  assert.deepEqual(
+    result.diagnostics.find(
+      (diagnostic) => diagnostic.code === "external-dependencies-detected",
+    ).allowedActions,
+    SAFE_ANALYZER_ACTIONS,
+  );
+  assert.deepEqual(
+    result.diagnostics.find(
+      (diagnostic) => diagnostic.code === "external-dependencies-detected",
+    ).blockedActions,
+    [],
+  );
 });
 
 test("overly generic description returns quality policy diagnostic", () => {
@@ -196,6 +252,8 @@ test("overly generic description returns quality policy diagnostic", () => {
     riskLevel: "low",
     message: "Skill description must identify a specific activation condition.",
     recommendation: "Describe the exact situation where this skill should be used.",
+    allowedActions: SAFE_ANALYZER_ACTIONS,
+    blockedActions: [],
   });
 });
 
@@ -226,6 +284,8 @@ test("missing referenced file returns warning diagnostic", () => {
       message: "Referenced file is missing.",
       recommendation: "Add the referenced file or remove the stale reference.",
       referencePath: "references/security.md",
+      allowedActions: SAFE_ANALYZER_ACTIONS,
+      blockedActions: [],
     },
   ]);
 });

@@ -11,6 +11,7 @@ export {
   decideRiskPolicy,
   decideTransferPolicy,
   createBuiltInAnalyzerPolicyPack,
+  suggestRemediationActions,
   buildRepositoryIndex,
   evaluateSkillNameConflictPolicy,
   evaluateSkillShadowingPolicy,

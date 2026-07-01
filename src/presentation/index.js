@@ -23,6 +23,7 @@ export {
   renderCommandResult,
   wrapCommandHandlerWithResultRendering,
 } from "./command-result-renderer.js";
+export { resolveDiagnosticActionCommand } from "./diagnostic-action-router.js";
 
 export const layerName = "presentation";
 

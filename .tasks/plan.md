@@ -184,13 +184,13 @@ Phase 004는 다음 결정을 따른다.
 
 이 검토에서 확인한 계획 보강 사항은 다음과 같다. 각 항목은 Phase 004 task 작성 시 반드시 반영한다.
 
-| Finding | Correction Applied To This Plan | Required Verification |
-| --- | --- | --- |
-| Phase 004용 release smoke checklist가 이미 존재하지만 Phase 004.1 문장은 초안 생성을 후속 작업처럼 설명했다. | Phase 004.1은 checklist 생성이 아니라 현재 `.tasks/release-smoke.md`와 release gate marker의 일치 여부를 검증하도록 수정한다. | task001에서 `.tasks/release-smoke.md`, `scripts/release-gate.mjs`, release smoke checklist test를 대조한다. |
-| Phase별 목표는 명확하지만 task로 분해할 때 reviewable unit 기준이 부족했다. | `7.0.1 Reviewable Task Slicing Rules`를 추가해 task 크기와 계층 변경 한계를 고정한다. | 각 task가 기능 2~3개 이하를 포함하고, Tidy First와 behavior change가 분리되어 있는지 리뷰한다. |
-| Phase exit gate가 테스트 명령 중심으로만 보일 수 있었다. | `7.0.2 Phase Exit Gates`를 추가해 automated, architectural, runtime, manual smoke, documentation exit gate를 분리한다. | task 완료 보고에 exit gate evidence를 남긴다. |
-| AGENTS.md의 설정/로그/상태머신 원칙이 task 작성 중 누락될 수 있었다. | `8.5`, `9.1`, `10.5`, `11.4`에 task별 증거 요구사항과 transition table 기준을 추가한다. | task template의 Related Plan Items와 Done Criteria에 해당 section을 링크한다. |
-| Git versioning과 VSIX candidate가 core runtime dependency로 오해될 수 있었다. | Git은 local capability, VSIX는 release candidate validation으로 제한한다고 반복 명시한다. | non-Git repository test와 missing packaging tool scenario test를 요구한다. |
+| Finding                                                                           | Correction Applied To This Plan                                                                               | Required Verification                                                                                |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Phase 004용 release smoke checklist가 이미 존재하지만 Phase 004.1 문장은 초안 생성을 후속 작업처럼 설명했다. | Phase 004.1은 checklist 생성이 아니라 현재 `.tasks/release-smoke.md`와 release gate marker의 일치 여부를 검증하도록 수정한다.          | task001에서 `.tasks/release-smoke.md`, `scripts/release-gate.mjs`, release smoke checklist test를 대조한다. |
+| Phase별 목표는 명확하지만 task로 분해할 때 reviewable unit 기준이 부족했다.                            | `7.0.1 Reviewable Task Slicing Rules`를 추가해 task 크기와 계층 변경 한계를 고정한다.                                           | 각 task가 기능 2~3개 이하를 포함하고, Tidy First와 behavior change가 분리되어 있는지 리뷰한다.                                |
+| Phase exit gate가 테스트 명령 중심으로만 보일 수 있었다.                                           | `7.0.2 Phase Exit Gates`를 추가해 automated, architectural, runtime, manual smoke, documentation exit gate를 분리한다. | task 완료 보고에 exit gate evidence를 남긴다.                                                                 |
+| AGENTS.md의 설정/로그/상태머신 원칙이 task 작성 중 누락될 수 있었다.                                    | `8.5`, `9.1`, `10.5`, `11.4`에 task별 증거 요구사항과 transition table 기준을 추가한다.                                       | task template의 Related Plan Items와 Done Criteria에 해당 section을 링크한다.                                  |
+| Git versioning과 VSIX candidate가 core runtime dependency로 오해될 수 있었다.               | Git은 local capability, VSIX는 release candidate validation으로 제한한다고 반복 명시한다.                                    | non-Git repository test와 missing packaging tool scenario test를 요구한다.                                 |
 
 ### 4.6 Priority And Non-Negotiable Order
 
@@ -1362,10 +1362,10 @@ WritingAudit -> Completed
 
 상태머신이 필요한 task는 다음 transition table을 task 문서에 작성한다.
 
-| From State | Event | Guard | To State | Side Effect | Product Log | Field Debug Log | Test |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `Idle` | `Start` | valid input | `Validating` | none | none | transition trace when Field Debug is enabled | state starts test |
-| `Validating` | `InvalidInput` | missing required input | `Blocked` | none | operation blocked event if user-visible | validation detail | invalid input test |
+| From State   | Event          | Guard                  | To State     | Side Effect | Product Log                             | Field Debug Log                              | Test               |
+| ------------ | -------------- | ---------------------- | ------------ | ----------- | --------------------------------------- | -------------------------------------------- | ------------------ |
+| `Idle`       | `Start`        | valid input            | `Validating` | none        | none                                    | transition trace when Field Debug is enabled | state starts test  |
+| `Validating` | `InvalidInput` | missing required input | `Blocked`    | none        | operation blocked event if user-visible | validation detail                            | invalid input test |
 
 Side Effect 값은 다음 중 하나로만 작성한다.
 
@@ -1387,15 +1387,15 @@ Side Effect 값은 다음 중 하나로만 작성한다.
 
 ### 12.1 Boundary Matrix
 
-| Feature              | Domain                        | Application                              | Infrastructure                        | Presentation                | Scripts                      |
-| -------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------- | --------------------------- | ---------------------------- |
-| Repository Index     | identity policy, schema value | rebuild orchestration                    | metadata store, hash port             | source row display          | release checklist validation |
+| Feature              | Domain                        | Application                              | Infrastructure                        | Presentation                | Scripts                                      |
+| -------------------- | ----------------------------- | ---------------------------------------- | ------------------------------------- | --------------------------- | -------------------------------------------- |
+| Repository Index     | identity policy, schema value | rebuild orchestration                    | metadata store, hash port             | source row display          | release checklist validation                 |
 | Local Git Versioning | version status value          | version use cases                        | Git adapter                           | command/result display      | artifact check stays in release scripts only |
-| Backup Lifecycle     | backup policy, state machine  | compare/restore/promote/delete use cases | filesystem copy/hash/audit            | commands/detail tree        | smoke checklist              |
-| Analyzer Policy      | policy rules, findings        | analyzer orchestration                   | skill file read, metadata persistence | diagnostics display/actions | none                         |
-| Target Profiles      | profile compatibility policy  | target selection/apply preflight         | settings/path resolution              | badges/context menus        | manifest condition tests     |
-| Remediation          | allowed action policy         | action router                            | underlying ports                      | diagnostics context menu    | smoke checklist              |
-| Release Candidate    | none                          | none                                     | none                                  | none                        | gate scripts                 |
+| Backup Lifecycle     | backup policy, state machine  | compare/restore/promote/delete use cases | filesystem copy/hash/audit            | commands/detail tree        | smoke checklist                              |
+| Analyzer Policy      | policy rules, findings        | analyzer orchestration                   | skill file read, metadata persistence | diagnostics display/actions | none                                         |
+| Target Profiles      | profile compatibility policy  | target selection/apply preflight         | settings/path resolution              | badges/context menus        | manifest condition tests                     |
+| Remediation          | allowed action policy         | action router                            | underlying ports                      | diagnostics context menu    | smoke checklist                              |
+| Release Candidate    | none                          | none                                     | none                                  | none                        | gate scripts                                 |
 
 ### 12.2 Port Rules
 

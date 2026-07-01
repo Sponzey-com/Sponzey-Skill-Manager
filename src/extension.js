@@ -26,6 +26,7 @@ import {
   refreshSponzeyTreeDataProviders,
   registerSponzeyCommands,
   registerSponzeyTreeDataProviders,
+  resolveDiagnosticActionCommand,
   wrapCommandHandlerWithResultRendering,
   wrapCommandHandlersWithInputCollection,
 } from "./presentation/index.js";
@@ -91,9 +92,12 @@ export async function activate(context, runtime = {}) {
     defaultMainRepositoryPath,
     defaultGlobalTargets,
   });
+  const handlersWithDiagnosticActions = wrapDiagnosticActionHandlers({
+    handlers: handlersWithTreeUpdates,
+  });
   const handlersWithLogging = wrapCommandHandlersWithLogging({
     handlers: wrapCommandHandlersWithAudit({
-      handlers: handlersWithTreeUpdates,
+      handlers: handlersWithDiagnosticActions,
       auditStore: adapters.auditStore,
       runtimeSession,
     }),
@@ -207,6 +211,122 @@ function wrapCommandHandlersWithAudit({ handlers, auditStore, runtimeSession }) 
   );
 }
 
+function wrapDiagnosticActionHandlers({ handlers }) {
+  const commandId = "sponzeySkills.runDiagnosticAction";
+
+  return {
+    ...handlers,
+    async [commandId](input = {}) {
+      const routingResult = resolveDiagnosticActionCommand({
+        item: input,
+        actionCode: input.actionCode,
+        confirmationProvided: input.confirmationProvided === true,
+      });
+
+      if (!routingResult.ok) {
+        return appendRemediationActionEvent({
+          result: routingResult,
+          input,
+          actionCode: input.actionCode,
+          status: "blocked",
+          reason: routingResult.code,
+        });
+      }
+
+      const delegatedHandler = handlers[routingResult.commandId];
+      if (typeof delegatedHandler !== "function") {
+        return {
+          ok: false,
+          code: "diagnostic-action-command-unavailable",
+          diagnostics: [
+            {
+              code: "diagnostic-action-command-unavailable",
+              severity: "warning",
+              category: "diagnostic-action",
+              actionCode: input.actionCode,
+              message:
+                "Diagnostic action does not have a registered command yet.",
+            },
+          ],
+        };
+      }
+
+      const result = await delegatedHandler(routingResult.input);
+      return appendRemediationActionEvent({
+        result,
+        input,
+        actionCode: input.actionCode,
+        commandId: routingResult.commandId,
+        status: result?.ok === true ? "completed" : "failed",
+        reason: result?.code ?? result?.diagnostics?.[0]?.code,
+      });
+    },
+  };
+}
+
+function appendRemediationActionEvent({
+  result,
+  input,
+  actionCode,
+  commandId,
+  status,
+  reason,
+}) {
+  return {
+    ...(result ?? {}),
+    events: [
+      ...(result?.events ?? []),
+      remediationActionEvent({
+        input,
+        actionCode,
+        commandId,
+        status,
+        reason,
+      }),
+    ],
+  };
+}
+
+function remediationActionEvent({
+  input,
+  actionCode,
+  commandId,
+  status,
+  reason,
+}) {
+  const event = {
+    level: "ProductLog",
+    code: `remediation.action.${status}`,
+  };
+
+  assignSafeEventField(event, "actionCode", actionCode);
+  assignSafeEventField(event, "commandId", commandId);
+  assignSafeEventField(event, "diagnosticCode", input?.diagnostic?.code);
+  assignSafeEventField(
+    event,
+    "sourceId",
+    input?.source?.id ?? input?.diagnostic?.sourceId,
+  );
+  assignSafeEventField(
+    event,
+    "sourceName",
+    input?.source?.name ?? input?.diagnostic?.sourceName,
+  );
+  if (status !== "completed") {
+    assignSafeEventField(event, "reason", reason);
+  }
+
+  return event;
+}
+
+function assignSafeEventField(event, key, value) {
+  if (!isSafeAuditReference(value)) {
+    return;
+  }
+
+  event[key] = value;
+}
+
 function shouldAuditEvent(event) {
   return /^skill\.(?:transfer|backup|source|apply)/.test(event?.code ?? "");
 }
@@ -225,6 +345,7 @@ const AUDIT_OPERATION_TYPES = {
     "move-applied-skill-to-main-repository",
   "sponzeySkills.deleteSourceSkill": "source-delete",
   "sponzeySkills.promoteBackupToSkillSource": "backup-promote-to-source",
+  "sponzeySkills.restoreBackupToTarget": "backup-restore",
   "sponzeySkills.deleteBackup": "backup-delete",
 };
 
@@ -611,6 +732,7 @@ function wrapRuntimeMutationHandlers({
     "sponzeySkills.deleteSourceSkill",
     "sponzeySkills.importSkillArchive",
     "sponzeySkills.promoteBackupToSkillSource",
+    "sponzeySkills.restoreBackupToTarget",
     "sponzeySkills.deleteBackup",
   ];
   const mainRepositoryReadCommandIds = [
@@ -932,6 +1054,7 @@ function requiresMainRepository(commandId) {
     "sponzeySkills.importSkillArchive",
     "sponzeySkills.listSkillBackups",
     "sponzeySkills.promoteBackupToSkillSource",
+    "sponzeySkills.restoreBackupToTarget",
     "sponzeySkills.deleteBackup",
   ]).has(commandId);
 }

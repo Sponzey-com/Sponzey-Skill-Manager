@@ -22,6 +22,15 @@ const requiredDevelopmentSignals = Object.freeze([
   "npm test",
   "npm run build",
   "npm run release:gate",
+  "npm run check:vsix-candidate",
+  "npm run package:vsix-candidate",
+  "PackagingToolMissing",
+  "Release VSIX",
+  "git tag",
+  "git push origin",
+  "GitHub Release",
+  "build-only",
+  "v0.1.0a",
   "scripts/run-vscode-extension-host.sh",
 ]);
 

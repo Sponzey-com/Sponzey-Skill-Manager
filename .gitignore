@@ -36,6 +36,7 @@ coverage/
 
 # Build output
 dist/
+.dist/
 build/Release
 
 # TypeScript cache
@@ -62,3 +63,5 @@ out/
 .yarn/unplugged
 .yarn/install-state.gz
 .pnp.*
+
+.tasks/

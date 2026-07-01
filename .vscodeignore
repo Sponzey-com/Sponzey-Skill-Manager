@@ -1,0 +1,16 @@
+.github/**
+.tasks/**
+.codex/**
+.agents/**
+test/**
+scripts/**
+.dist/**
+coverage/**
+node_modules/**
+*.log
+*.pid
+*.pid.lock
+.DS_Store
+AGENTS.md
+PROJECT.md
+RESEARCH.md

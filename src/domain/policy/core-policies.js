@@ -123,6 +123,54 @@ const BUILT_IN_ANALYZER_POLICY_RULES = Object.freeze(
   ],
 );
 
+const REMEDIATION_ACTIONS = Object.freeze({
+  OPEN_SKILL_MD: remediationAction({
+    code: "open-skill-md",
+    sideEffect: "open-file",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "safe",
+  }),
+  ANALYZE_AGAIN: remediationAction({
+    code: "analyze-again",
+    sideEffect: "analysis-refresh",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "safe",
+  }),
+  APPLY_SKILL_WITH_CONFIRMATION: remediationAction({
+    code: "apply-skill-to-target",
+    sideEffect: "target-write",
+    mutatesTarget: true,
+    requiresConfirmation: true,
+    safety: "confirmation-required",
+  }),
+  SET_MAIN_REPOSITORY: remediationAction({
+    code: "set-main-repository",
+    sideEffect: "configuration-update",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "configuration-required",
+  }),
+  COMPARE_BACKUP: remediationAction({
+    code: "compare-backup",
+    sideEffect: "read-only-comparison",
+    mutatesTarget: false,
+    requiresConfirmation: false,
+    safety: "safe",
+  }),
+});
+
+const BLOCKED_REMEDIATION_ACTIONS = Object.freeze({
+  APPLY_SKILL_TO_TARGET: Object.freeze({
+    code: "apply-skill-to-target",
+    reason: "critical-risk-blocked",
+    mutatesTarget: true,
+    requiresConfirmation: false,
+    safety: "blocked",
+  }),
+});
+
 export function createBuiltInAnalyzerPolicyPack() {
   return Object.freeze({
     id: "sponzey-built-in-analyzer-policy",
@@ -235,6 +283,49 @@ export function decideRiskPolicy({
     severity: riskLevel ?? "low",
     message: "Risk level is allowed by domain policy.",
   };
+}
+
+export function suggestRemediationActions({ diagnostic }) {
+  const code = String(diagnostic?.code ?? "").trim();
+  const category = String(diagnostic?.category ?? "").trim();
+
+  if (mainRepositoryDiagnostic(code)) {
+    return remediationResult({
+      allowedActions: [
+        REMEDIATION_ACTIONS.SET_MAIN_REPOSITORY,
+        REMEDIATION_ACTIONS.ANALYZE_AGAIN,
+      ],
+      blockedActions: [],
+    });
+  }
+
+  if (backupDiagnostic({ code, category })) {
+    return remediationResult({
+      allowedActions: [
+        REMEDIATION_ACTIONS.COMPARE_BACKUP,
+        REMEDIATION_ACTIONS.ANALYZE_AGAIN,
+      ],
+      blockedActions: [],
+    });
+  }
+
+  const allowedActions = [
+    REMEDIATION_ACTIONS.OPEN_SKILL_MD,
+    REMEDIATION_ACTIONS.ANALYZE_AGAIN,
+  ];
+  const blockedActions = [];
+  const riskDecision = decideRiskPolicy({
+    riskLevel: diagnosticRiskLevel(diagnostic),
+    confirmationProvided: false,
+  });
+
+  if (riskDecision.code === "critical-risk-blocked") {
+    blockedActions.push(BLOCKED_REMEDIATION_ACTIONS.APPLY_SKILL_TO_TARGET);
+  } else if (riskDecision.code === "high-risk-confirmation-required") {
+    allowedActions.push(REMEDIATION_ACTIONS.APPLY_SKILL_WITH_CONFIRMATION);
+  }
+
+  return remediationResult({ allowedActions, blockedActions });
 }
 
 export function decideApplyConflictPolicy({ existingTargetKind }) {
@@ -569,4 +660,68 @@ function analyzerPolicyRule({
     riskLevel,
     recommendation,
   });
+}
+
+function remediationAction({
+  code,
+  sideEffect,
+  mutatesTarget,
+  requiresConfirmation,
+  safety,
+}) {
+  return Object.freeze({
+    code,
+    sideEffect,
+    mutatesTarget,
+    requiresConfirmation,
+    safety,
+  });
+}
+
+function remediationResult({ allowedActions, blockedActions }) {
+  return Object.freeze({
+    allowedActions: Object.freeze(allowedActions.map(cloneAction)),
+    blockedActions: Object.freeze(blockedActions.map(cloneAction)),
+  });
+}
+
+function cloneAction(action) {
+  return Object.freeze({ ...action });
+}
+
+function diagnosticRiskLevel(diagnostic) {
+  const riskLevel = String(diagnostic?.riskLevel ?? "").trim().toLowerCase();
+  if (["low", "medium", "high", "critical"].includes(riskLevel)) {
+    return riskLevel;
+  }
+
+  const severity = String(diagnostic?.severity ?? "").trim().toLowerCase();
+  if (severity === "critical") {
+    return "critical";
+  }
+  if (severity === "high") {
+    return "high";
+  }
+  if (severity === "medium") {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function mainRepositoryDiagnostic(code) {
+  return (
+    code === "invalid-main-repository-path" ||
+    code === "main-repository-path-required" ||
+    code === "missing-main-repository" ||
+    code === "main-repository-overlaps-target"
+  );
+}
+
+function backupDiagnostic({ code, category }) {
+  return (
+    String(category).trim() === "backup" ||
+    String(code).startsWith("backup-") ||
+    String(code).includes(".backup.")
+  );
 }

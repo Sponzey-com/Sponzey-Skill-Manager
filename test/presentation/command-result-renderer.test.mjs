@@ -126,6 +126,109 @@ test("renderCommandResult explains Codex refresh after global skill apply", asyn
   });
 });
 
+test("renderCommandResult summarizes backup lifecycle results without paths", async () => {
+  const calls = [];
+
+  await renderCommandResult({
+    result: {
+      ok: true,
+      comparison: {
+        status: "in-sync",
+        backupOnlyFileCount: 0,
+        referenceOnlyFileCount: 0,
+        modifiedFileCount: 0,
+      },
+      events: [
+        {
+          level: "ProductLog",
+          code: "skill.backup.compare.completed",
+          status: "in-sync",
+          backupOnlyFileCount: 0,
+          referenceOnlyFileCount: 0,
+          modifiedFileCount: 0,
+        },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      comparison: {
+        status: "different",
+        backupOnlyFileCount: 1,
+        referenceOnlyFileCount: 2,
+        modifiedFileCount: 3,
+      },
+      events: [
+        {
+          level: "ProductLog",
+          code: "skill.backup.compare.completed",
+          status: "different",
+          backupOnlyFileCount: 1,
+          referenceOnlyFileCount: 2,
+          modifiedFileCount: 3,
+        },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      restored: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        targetPath: "/secret/target/alpha",
+      },
+      events: [
+        {
+          level: "ProductLog",
+          code: "skill.backup.restore.completed",
+          skillName: "alpha",
+          targetId: "global:codex:/secret/target",
+        },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      result: {
+        backupPath: "/secret/backups/alpha/snapshot-001",
+      },
+      events: [
+        {
+          level: "ProductLog",
+          code: "skill.backup.delete.completed",
+        },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+
+  assert.deepEqual(calls, [
+    [
+      "info",
+      "Sponzey Skills: skill.backup.compare.completed - Backup is in sync with reference.",
+    ],
+    [
+      "info",
+      "Sponzey Skills: skill.backup.compare.completed - Backup differs: 1 backup-only, 2 reference-only, 3 modified.",
+    ],
+    [
+      "info",
+      "Sponzey Skills: skill.backup.restore.completed - Restored alpha from backup snapshot-001 to selected target.",
+    ],
+    [
+      "info",
+      "Sponzey Skills: skill.backup.delete.completed - Deleted backup snapshot.",
+    ],
+  ]);
+  assert.equal(calls.some(([, message]) => message.includes("/secret")), false);
+});
+
 test("renderCommandResult summarizes analysis diagnostics instead of showing first diagnostic code", async () => {
   const calls = [];
   const renderResult = await renderCommandResult({

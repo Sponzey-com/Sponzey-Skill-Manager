@@ -14,6 +14,7 @@ import {
   evaluateSkillNameConflictPolicy,
   evaluateSkillShadowingPolicy,
   evaluateRepositoryPathPolicy,
+  suggestRemediationActions,
 } from "../../src/domain/index.js";
 
 test("domain value objects and entities are frozen and framework independent", () => {
@@ -159,6 +160,138 @@ test("risk policy blocks critical risk and requires confirmation for high risk",
   assert.equal(
     decideRiskPolicy({ riskLevel: "low", confirmationProvided: false }).allow,
     true,
+  );
+});
+
+test("remediation policy blocks target apply for critical diagnostics", () => {
+  const result = suggestRemediationActions({
+    diagnostic: {
+      code: "destructive-rm-rf",
+      category: "security",
+      severity: "critical",
+      riskLevel: "critical",
+    },
+  });
+
+  assert.deepEqual(result, {
+    allowedActions: [
+      {
+        code: "open-skill-md",
+        sideEffect: "open-file",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+      {
+        code: "analyze-again",
+        sideEffect: "analysis-refresh",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+    ],
+    blockedActions: [
+      {
+        code: "apply-skill-to-target",
+        reason: "critical-risk-blocked",
+        mutatesTarget: true,
+        requiresConfirmation: false,
+        safety: "blocked",
+      },
+    ],
+  });
+});
+
+test("remediation policy requires confirmation for high risk diagnostics", () => {
+  const result = suggestRemediationActions({
+    diagnostic: {
+      code: "missing-description",
+      category: "quality",
+      severity: "high",
+      riskLevel: "high",
+    },
+  });
+
+  assert.deepEqual(result, {
+    allowedActions: [
+      {
+        code: "open-skill-md",
+        sideEffect: "open-file",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+      {
+        code: "analyze-again",
+        sideEffect: "analysis-refresh",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+      {
+        code: "apply-skill-to-target",
+        sideEffect: "target-write",
+        mutatesTarget: true,
+        requiresConfirmation: true,
+        safety: "confirmation-required",
+      },
+    ],
+    blockedActions: [],
+  });
+});
+
+test("remediation policy exposes configuration and backup read-only actions", () => {
+  assert.deepEqual(
+    suggestRemediationActions({
+      diagnostic: {
+        code: "invalid-main-repository-path",
+        category: "configuration",
+        severity: "error",
+      },
+    }).allowedActions,
+    [
+      {
+        code: "set-main-repository",
+        sideEffect: "configuration-update",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "configuration-required",
+      },
+      {
+        code: "analyze-again",
+        sideEffect: "analysis-refresh",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+    ],
+  );
+
+  assert.deepEqual(
+    suggestRemediationActions({
+      diagnostic: {
+        code: "backup-comparison-path-not-found",
+        category: "backup",
+        severity: "warning",
+        riskLevel: "low",
+      },
+    }).allowedActions,
+    [
+      {
+        code: "compare-backup",
+        sideEffect: "read-only-comparison",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+      {
+        code: "analyze-again",
+        sideEffect: "analysis-refresh",
+        mutatesTarget: false,
+        requiresConfirmation: false,
+        safety: "safe",
+      },
+    ],
   );
 });
 

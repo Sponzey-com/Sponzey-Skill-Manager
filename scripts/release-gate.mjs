@@ -3,6 +3,8 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { evaluateVsixCandidatePackaging } from "./package-vsix-candidate.mjs";
+
 const CHECKS = Object.freeze([
   {
     name: "tests",
@@ -30,25 +32,37 @@ const CHECKS = Object.freeze([
   },
 ]);
 const SMOKE_CHECKLIST_PATH = ".tasks/release-smoke.md";
+const SMOKE_EVIDENCE_PATH = ".tasks/extension-host-smoke-evidence.md";
 const REQUIRED_SMOKE_MARKERS = Object.freeze([
-  "# Phase 004 Release Smoke Checklist",
-  "## 1. Automated Verification",
-  "## 2. Extension Development Host",
-  "## 3. Repository Setup",
-  "## 4. Repository Index And Versioning",
-  "## 5. Main Repository Skill Lifecycle",
-  "## 6. Global And Project Apply",
-  "## 7. Diagnostics And Analysis",
-  "## 8. Backup Transfer And Safety",
+  "# Phase 004 릴리스 스모크 체크리스트",
+  "## 1. 자동 검증",
+  "## 2. 확장 개발 호스트",
+  "## 3. 리포지토리 설정",
+  "## 4. 리포지토리 인덱스와 버전 관리",
+  "## 5. Main Repository 스킬 생명주기",
+  "## 6. Global 및 Project 적용",
+  "## 7. Diagnostics와 Analysis",
+  "## 8. 백업 전송과 안전성",
   "## 9. Diagnostics Remediation Workflow",
-  "## 10. Watcher Refresh And Runtime Recomposition",
-  "## 11. Documentation And Release Gate",
+  "## 10. Watcher Refresh와 Runtime Recomposition",
+  "## 11. 문서와 Release Gate",
+]);
+const REQUIRED_EVIDENCE_MARKERS = Object.freeze([
+  "# Phase 004 확장 호스트 수동 검증 기록",
+  "## 1. 검증 세션",
+  "## 2. 환경",
+  "## 3. 실행 명령",
+  "## 4. 체크리스트 결과 요약",
+  "## 5. 실패 또는 차단 항목",
+  "## 6. 검증 증거 메모",
+  "## 7. 릴리스 판단",
 ]);
 
 export async function runReleaseGate({
   runCommand = runCommandWithSpawn,
   checkFile = access,
   readTextFile = readFile,
+  checkPackagingCapability = evaluateVsixCandidatePackaging,
 } = {}) {
   for (const check of CHECKS) {
     const result = await runCommand(check);
@@ -90,9 +104,69 @@ export async function runReleaseGate({
     };
   }
 
+  try {
+    await checkFile(SMOKE_EVIDENCE_PATH);
+  } catch {
+    return {
+      ok: false,
+      failureCode: "DocsFailed",
+      failedCheck: "docs",
+    };
+  }
+
+  let smokeEvidence;
+  try {
+    smokeEvidence = await readTextFile(SMOKE_EVIDENCE_PATH, "utf8");
+  } catch {
+    return {
+      ok: false,
+      failureCode: "DocsFailed",
+      failedCheck: "docs",
+    };
+  }
+
+  if (!validSmokeEvidence(smokeEvidence)) {
+    return {
+      ok: false,
+      failureCode: "SmokeMissing",
+      failedCheck: "smoke",
+    };
+  }
+
+  const packagingResult = await checkPackagingCapability({ mode: "check" });
+  if (!packagingResult.ok) {
+    return {
+      ok: false,
+      failureCode: packagingResult.code ?? "PackageFailed",
+      failedCheck: "packaging",
+    };
+  }
+
+  const checked = [
+    ...CHECKS.map((check) => check.name),
+    "docs",
+    "smoke",
+    "evidence",
+    "packaging",
+  ];
+
+  if (packagingResult.status === "skipped") {
+    return {
+      ok: true,
+      checked,
+      skipped: [
+        {
+          check: "packaging",
+          code: packagingResult.code,
+          message: packagingResult.message,
+        },
+      ],
+    };
+  }
+
   return {
     ok: true,
-    checked: [...CHECKS.map((check) => check.name), "docs", "smoke"],
+    checked,
   };
 }
 
@@ -102,7 +176,10 @@ if (isDirectExecution()) {
     console.error(`release-gate failed: ${result.failureCode}`);
     process.exitCode = 1;
   } else {
-    console.log(`release-gate ok: ${result.checked.join(", ")}`);
+    const skipped = result.skipped?.length
+      ? ` (skipped: ${result.skipped.map((check) => check.code).join(", ")})`
+      : "";
+    console.log(`release-gate ok: ${result.checked.join(", ")}${skipped}`);
   }
 }
 
@@ -123,4 +200,8 @@ function runCommandWithSpawn({ command, args }) {
 
 function validSmokeChecklist(content) {
   return REQUIRED_SMOKE_MARKERS.every((marker) => content.includes(marker));
+}
+
+function validSmokeEvidence(content) {
+  return REQUIRED_EVIDENCE_MARKERS.every((marker) => content.includes(marker));
 }

@@ -199,6 +199,71 @@ test("mapSkillsReadModelToTreeItems preserves diagnostic DTO payloads", () => {
   });
 });
 
+test("mapSkillsReadModelToTreeItems exposes diagnostic remediation action summary", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [
+      {
+        id: "alpha",
+        name: "alpha",
+        status: "inactive",
+        sourcePath: "/repo/skills/alpha",
+      },
+    ],
+    globalSkills: [],
+    projectSkills: [],
+    diagnostics: [
+      {
+        code: "destructive-rm-rf",
+        severity: "error",
+        category: "security",
+        riskLevel: "critical",
+        message: "Destructive remove command detected.",
+        sourceId: "alpha",
+        allowedActions: [
+          {
+            code: "open-skill-md",
+            sideEffect: "open-file",
+            mutatesTarget: false,
+            requiresConfirmation: false,
+            safety: "safe",
+          },
+          {
+            code: "analyze-again",
+            sideEffect: "analysis-refresh",
+            mutatesTarget: false,
+            requiresConfirmation: false,
+            safety: "safe",
+          },
+        ],
+        blockedActions: [
+          {
+            code: "apply-skill-to-target",
+            reason: "critical-risk-blocked",
+            mutatesTarget: true,
+            requiresConfirmation: false,
+            safety: "blocked",
+          },
+        ],
+      },
+    ],
+  });
+
+  const diagnosticItem = tree[3].children[0].children[0].children[0];
+
+  assert.equal(diagnosticItem.contextValue, "sponzeyDiagnosticWithSource");
+  assert.deepEqual(diagnosticItem.diagnosticActions, {
+    allowedActionCodes: ["open-skill-md", "analyze-again"],
+    blockedActionCodes: ["apply-skill-to-target"],
+    confirmationRequiredActionCodes: [],
+    hasBlockedActions: true,
+    hasMutatingAllowedActions: false,
+  });
+  assert.deepEqual(
+    diagnosticItem.diagnostic.blockedActions.map((action) => action.reason),
+    ["critical-risk-blocked"],
+  );
+});
+
 test("mapSkillsReadModelToTreeItems groups diagnostics and attaches source action payloads", () => {
   const tree = mapSkillsReadModelToTreeItems({
     mainRepositorySkills: [
@@ -465,7 +530,7 @@ test("package contributes expected tree item context menus", async () => {
   assert.equal(
     menuCommands.some(
       (item) =>
-        item.command === "sponzeySkills.promoteBackupToSkillSource" &&
+        item.command === "sponzeySkills.compareSkillBackup" &&
         item.when ===
           "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
     ),
@@ -474,8 +539,24 @@ test("package contributes expected tree item context menus", async () => {
   assert.equal(
     menuCommands.some(
       (item) =>
-        item.command === "sponzeySkills.deleteBackup" &&
+        item.command === "sponzeySkills.restoreBackupToTarget" &&
         item.group === "backup@2",
+    ),
+    true,
+  );
+  assert.equal(
+    menuCommands.some(
+      (item) =>
+        item.command === "sponzeySkills.promoteBackupToSkillSource" &&
+        item.group === "backup@3",
+    ),
+    true,
+  );
+  assert.equal(
+    menuCommands.some(
+      (item) =>
+        item.command === "sponzeySkills.deleteBackup" &&
+        item.group === "backup@4",
     ),
     true,
   );
@@ -488,6 +569,13 @@ test("package contributes repository management view title buttons", async () =>
     when: item.when,
     group: item.group,
   }));
+  const contextMenus = packageJson.contributes.menus["view/item/context"].map(
+    (item) => ({
+      command: item.command,
+      when: item.when,
+      group: item.group,
+    }),
+  );
   const commandById = new Map(
     packageJson.contributes.commands.map((command) => [
       command.command,
@@ -524,6 +612,10 @@ test("package contributes repository management view title buttons", async () =>
   assert.equal(
     commandById.get("sponzeySkills.listSkillBackups")?.icon,
     "$(archive)",
+  );
+  assert.equal(
+    commandById.get("sponzeySkills.runDiagnosticAction")?.icon,
+    "$(play)",
   );
   assert.equal(
     titleMenus.some(
@@ -574,6 +666,26 @@ test("package contributes repository management view title buttons", async () =>
         item.when === "view == sponzeySkills.diagnostics" &&
         item.group === "navigation@0",
       ),
+    true,
+  );
+  assert.equal(
+    contextMenus.some(
+      (item) =>
+        item.command === "sponzeySkills.runDiagnosticAction" &&
+        item.when ===
+          "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource" &&
+        item.group === "navigation@1",
+    ),
+    true,
+  );
+  assert.equal(
+    contextMenus.some(
+      (item) =>
+        item.command === "sponzeySkills.runDiagnosticAction" &&
+        item.when ===
+          "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnostic" &&
+        item.group === "navigation@0",
+    ),
     true,
   );
   for (const item of titleMenus) {

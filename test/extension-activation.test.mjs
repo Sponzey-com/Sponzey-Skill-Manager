@@ -1011,6 +1011,846 @@ test("analyze command updates registered diagnostics tree provider cache", async
   );
 });
 
+test("diagnostic action command delegates safe action to existing command handler", async () => {
+  const registeredCommands = [];
+  const openedPaths = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      repositoryOpener: {
+        async openPath(input) {
+          openedPaths.push(input);
+          return { ok: true };
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          return {
+            ok: true,
+            groups: [],
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "open-skill-md",
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+    diagnostic: {
+      code: "external-dependencies-detected",
+      severity: "warning",
+      category: "dependency",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["open-skill-md"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: [],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(openedPaths, [
+    {
+      path: "/repo/skills/alpha/SKILL.md",
+      openMode: "editor",
+    },
+  ]);
+});
+
+test("diagnostic action command logs completed Product Log without raw paths", async () => {
+  const registeredCommands = [];
+  const productEvents = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      repositoryOpener: {
+        async openPath() {
+          return { ok: true };
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          return {
+            ok: true,
+            groups: [],
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "open-skill-md",
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+    diagnostic: {
+      code: "external-dependencies-detected",
+      severity: "warning",
+      category: "dependency",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["open-skill-md"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: [],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const remediationEvent = productEvents.find(
+    (event) => event.code === "remediation.action.completed",
+  );
+  assert.deepEqual(remediationEvent, {
+    level: "ProductLog",
+    code: "remediation.action.completed",
+    actionCode: "open-skill-md",
+    commandId: "sponzeySkills.openSkillMd",
+    diagnosticCode: "external-dependencies-detected",
+    sourceId: "alpha",
+    sourceName: "alpha",
+  });
+  assert.equal(JSON.stringify(remediationEvent).includes("/repo"), false);
+});
+
+test("diagnostic action command logs failed Product Log for delegated failures", async () => {
+  const registeredCommands = [];
+  const productEvents = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      repositoryOpener: {
+        async openPath() {
+          return {
+            ok: false,
+            error: {
+              code: "repository-open-failed",
+              severity: "error",
+              message: "Repository opener failed.",
+            },
+          };
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          return {
+            ok: true,
+            groups: [],
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "open-skill-md",
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+    diagnostic: {
+      code: "external-dependencies-detected",
+      severity: "warning",
+      category: "dependency",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["open-skill-md"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: [],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  const remediationEvent = productEvents.find(
+    (event) => event.code === "remediation.action.failed",
+  );
+  assert.deepEqual(remediationEvent, {
+    level: "ProductLog",
+    code: "remediation.action.failed",
+    actionCode: "open-skill-md",
+    commandId: "sponzeySkills.openSkillMd",
+    diagnosticCode: "external-dependencies-detected",
+    sourceId: "alpha",
+    sourceName: "alpha",
+    reason: "repository-open-failed",
+  });
+  assert.equal(JSON.stringify(remediationEvent).includes("/repo"), false);
+});
+
+test("diagnostic action command blocks mutating action before delegation", async () => {
+  const registeredCommands = [];
+  let openerCalled = false;
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      repositoryOpener: {
+        async openPath() {
+          openerCalled = true;
+          return { ok: true };
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "apply-skill-to-target",
+    diagnostic: {
+      code: "missing-description",
+      severity: "warning",
+      category: "quality",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["apply-skill-to-target"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["apply-skill-to-target"],
+    },
+  });
+
+  assert.equal(openerCalled, false);
+  assert.deepEqual(result, {
+    ok: false,
+    code: "diagnostic-action-confirmation-required",
+    diagnostics: [
+      {
+        code: "diagnostic-action-confirmation-required",
+        severity: "warning",
+        category: "diagnostic-action",
+        actionCode: "apply-skill-to-target",
+        message:
+          "Diagnostic action requires confirmation workflow before execution.",
+      },
+    ],
+    events: [
+      {
+        level: "ProductLog",
+        code: "remediation.action.blocked",
+        actionCode: "apply-skill-to-target",
+        diagnosticCode: "missing-description",
+        reason: "diagnostic-action-confirmation-required",
+      },
+    ],
+  });
+});
+
+test("diagnostic action command logs blocked Product Log before delegation", async () => {
+  const registeredCommands = [];
+  const productEvents = [];
+  let openerCalled = false;
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      repositoryOpener: {
+        async openPath() {
+          openerCalled = true;
+          return { ok: true };
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "apply-skill-to-target",
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+    diagnostic: {
+      code: "missing-description",
+      severity: "warning",
+      category: "quality",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["apply-skill-to-target"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["apply-skill-to-target"],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(openerCalled, false);
+  const remediationEvent = productEvents.find(
+    (event) => event.code === "remediation.action.blocked",
+  );
+  assert.deepEqual(remediationEvent, {
+    level: "ProductLog",
+    code: "remediation.action.blocked",
+    actionCode: "apply-skill-to-target",
+    diagnosticCode: "missing-description",
+    sourceId: "alpha",
+    sourceName: "alpha",
+    reason: "diagnostic-action-confirmation-required",
+  });
+  assert.equal(JSON.stringify(remediationEvent).includes("/repo"), false);
+});
+
+test("diagnostic action command delegates confirmed apply remediation to apply handler", async () => {
+  const registeredCommands = [];
+  const productEvents = [];
+  const copiedSkills = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    analyzer: {
+      async analyzeSourceSkill() {
+        return {
+          riskLevel: "high",
+          diagnostics: [],
+        };
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async copySkillToTarget(input) {
+          copiedSkills.push(input);
+          return {
+            ok: true,
+            targetPath: "/global/alpha",
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "apply-skill-to-target",
+    confirmationProvided: true,
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+    target: {
+      id: "codex-global",
+      scope: "global",
+      clientType: "codex",
+      targetPath: "/global",
+    },
+    applyMode: "copy",
+    diagnostic: {
+      code: "missing-description",
+      severity: "warning",
+      category: "quality",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["apply-skill-to-target"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["apply-skill-to-target"],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(copiedSkills, [
+    {
+      sourcePath: "/repo/skills/alpha",
+      targetRootPath: "/global",
+      skillName: "alpha",
+      metadata: {
+        sourceSkillId: "alpha",
+        sourcePath: "/repo/skills/alpha",
+        targetId: "codex-global",
+        applyMode: "copy",
+      },
+    },
+  ]);
+  assert.equal(
+    productEvents.some(
+      (event) =>
+        event.code === "remediation.action.completed" &&
+        event.actionCode === "apply-skill-to-target" &&
+        event.commandId === "sponzeySkills.applySkillToGlobalTarget",
+    ),
+    true,
+  );
+});
+
+test("diagnostic action command delegates confirmed backup delete remediation to delete handler", async () => {
+  const registeredCommands = [];
+  const productEvents = [];
+  const quickPickCalls = [];
+  const deleteCalls = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        async showInputBox() {},
+        async showQuickPick(items, options) {
+          quickPickCalls.push({ items, options });
+          return {
+            label: "Delete backup snapshot",
+            value: true,
+          };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+        async deleteBackup(input) {
+          deleteCalls.push(input);
+          return {
+            ok: true,
+            backupPath: input.backupPath,
+          };
+        },
+      },
+    },
+  });
+
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const result = await diagnosticActionHandler({
+    actionCode: "delete-backup",
+    confirmationProvided: true,
+    backup: {
+      skillName: "alpha",
+      snapshotId: "snapshot-001",
+      backupPath: "/repo/backups/alpha/snapshot-001",
+    },
+    diagnostic: {
+      code: "backup-stale",
+      severity: "warning",
+      category: "backup",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["delete-backup"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["delete-backup"],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(deleteCalls, [
+    {
+      backupPath: "/repo/backups/alpha/snapshot-001",
+    },
+  ]);
+  assert.equal(quickPickCalls[0].options.placeHolder, "Delete backup snapshot?");
+  assert.equal(
+    productEvents.some(
+      (event) =>
+        event.code === "remediation.action.completed" &&
+        event.actionCode === "delete-backup" &&
+        event.commandId === "sponzeySkills.deleteBackup",
+    ),
+    true,
+  );
+});
+
+test("diagnostic analyze-again action refreshes diagnostics tree", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const productEvents = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    analyzer: {
+      async analyzeSourceSkill({ source }) {
+        return {
+          riskLevel: "low",
+          diagnostics: [
+            {
+              code: "external-dependencies-detected",
+              severity: "warning",
+              message: "Skill declares external dependencies.",
+              sourceId: source.id,
+            },
+          ],
+        };
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [
+              {
+                id: "alpha",
+                name: "alpha",
+                sourcePath: "/repo/skills/alpha",
+              },
+            ],
+          };
+        },
+      },
+      hashPort: {
+        async hashDirectory() {
+          return { ok: true, hash: "source-hash-alpha" };
+        },
+      },
+      analysisStore: {
+        async writeAnalysisMetadata() {
+          return { ok: true };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run without targets");
+        },
+      },
+    },
+  });
+
+  const diagnosticsProvider = registeredTrees.find(
+    ([viewId]) => viewId === "sponzeySkills.diagnostics",
+  )[1];
+  const diagnosticActionHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.runDiagnosticAction",
+  )[1];
+  const initialDiagnostics = await diagnosticsProvider.getChildren();
+  const result = await diagnosticActionHandler({
+    actionCode: "analyze-again",
+    diagnostic: {
+      code: "analysis-stale",
+      severity: "warning",
+      category: "quality",
+      sourceId: "alpha",
+    },
+    diagnosticActions: {
+      allowedActionCodes: ["analyze-again"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: [],
+    },
+  });
+  const updatedDiagnostics = await diagnosticsProvider.getChildren();
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    initialDiagnostics.map((item) => item.label),
+    [],
+  );
+  assert.deepEqual(
+    updatedDiagnostics.map((item) => item.label),
+    ["warning"],
+  );
+  assert.equal(
+    productEvents.some(
+      (event) =>
+        event.code === "remediation.action.completed" &&
+        event.actionCode === "analyze-again" &&
+        event.commandId === "sponzeySkills.analyzeAllSkills",
+    ),
+    true,
+  );
+});
+
 test("analyze command dedupes persisted refresh diagnostics and manual refresh preserves them", async () => {
   const registeredCommands = [];
   const registeredTrees = [];
@@ -2675,6 +3515,174 @@ test("transfer commands collect missing input from VSCode window", async () => {
     },
   ]);
   assert.deepEqual(removeCalls, [{ targetPath: "/global/external" }]);
+});
+
+test("backup compare command delegates explicit paths to comparison port", async () => {
+  const registeredCommands = [];
+  const comparisonCalls = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async scanSourceSkills() {
+          return { ok: true, sources: [] };
+        },
+      },
+      backupComparisonPort: {
+        async compareDirectories(input) {
+          comparisonCalls.push(input);
+          return {
+            ok: true,
+            comparison: {
+              backupOnlyFiles: ["notes.md"],
+              referenceOnlyFiles: [],
+              modifiedFiles: ["SKILL.md"],
+              unchangedFiles: [],
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const compareHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.compareSkillBackup",
+  )[1];
+  const result = await compareHandler({
+    backupPath: "/repo/backups/alpha/snapshot-001",
+    referencePath: "/repo/skills/alpha",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.comparison.status, "different");
+  assert.deepEqual(comparisonCalls, [
+    {
+      backupPath: "/repo/backups/alpha/snapshot-001",
+      referencePath: "/repo/skills/alpha",
+    },
+  ]);
+});
+
+test("backup restore command delegates explicit input to target and audit ports", async () => {
+  const registeredCommands = [];
+  const targetRestoreCalls = [];
+  const auditCalls = [];
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async scanSourceSkills() {
+          return { ok: true, sources: [] };
+        },
+      },
+      targetStore: {
+        async restoreBackupToTarget(input) {
+          targetRestoreCalls.push(input);
+          return {
+            ok: true,
+            targetPath: "/global/alpha",
+            metadataPath: "/global/alpha/.sponzey-applied.json",
+          };
+        },
+      },
+      auditStore: {
+        async appendRecord(input) {
+          auditCalls.push(input);
+          return { ok: true, auditPath: "/repo/.sponzey/transfer-log.json" };
+        },
+      },
+    },
+  });
+
+  const restoreHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.restoreBackupToTarget",
+  )[1];
+  const result = await restoreHandler({
+    backup: {
+      skillName: "alpha",
+      snapshotId: "snapshot-001",
+      backupPath: "/repo/backups/alpha/snapshot-001",
+    },
+    target: {
+      id: "global:codex",
+      clientType: "codex",
+      targetPath: "/global",
+    },
+    overwriteConfirmed: true,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(targetRestoreCalls, [
+    {
+      backupPath: "/repo/backups/alpha/snapshot-001",
+      targetRootPath: "/global",
+      skillName: "alpha",
+      overwrite: true,
+      metadata: {
+        sourceSkillId: "alpha",
+        sourcePath: "/repo/backups/alpha/snapshot-001",
+        applyMode: "copy",
+        restoredFromBackup: true,
+        backupSnapshotId: "snapshot-001",
+        targetId: "global:codex",
+        clientType: "codex",
+      },
+    },
+  ]);
+  assert.deepEqual(auditCalls[0], {
+    repositoryPath: "/repo",
+    record: {
+      operation: "backup-restore",
+      code: "skill.backup.restore.completed",
+      skillName: "alpha",
+      targetId: "global:codex",
+      clientType: "codex",
+      snapshotId: "snapshot-001",
+      overwrite: true,
+    },
+  });
 });
 
 class FakeEventEmitter {

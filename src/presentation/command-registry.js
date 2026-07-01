@@ -28,9 +28,12 @@ export const SPONZEY_COMMANDS = Object.freeze([
   command("sponzeySkills.exportSourceSkill", "Sponzey Skills: Export Source Skill"),
   command("sponzeySkills.importSkillArchive", "Sponzey Skills: Import Skill Archive"),
   command("sponzeySkills.listSkillBackups", "Sponzey Skills: List Skill Backups"),
+  command("sponzeySkills.compareSkillBackup", "Sponzey Skills: Compare Skill Backup"),
+  command("sponzeySkills.restoreBackupToTarget", "Sponzey Skills: Restore Backup to Target"),
   command("sponzeySkills.promoteBackupToSkillSource", "Sponzey Skills: Promote Backup to Skill Source"),
   command("sponzeySkills.deleteBackup", "Sponzey Skills: Delete Backup"),
   command("sponzeySkills.showDiagnostics", "Sponzey Skills: Show Diagnostics"),
+  command("sponzeySkills.runDiagnosticAction", "Sponzey Skills: Run Diagnostic Action"),
 ]);
 
 export function createCommandHandlers(overrides = {}) {
@@ -94,6 +97,8 @@ const USE_CASE_BY_COMMAND_ID = Object.freeze({
   "sponzeySkills.exportSourceSkill": "exportSourceSkill",
   "sponzeySkills.importSkillArchive": "importSkillArchiveToMainRepository",
   "sponzeySkills.listSkillBackups": "listSkillBackups",
+  "sponzeySkills.compareSkillBackup": "compareSkillBackup",
+  "sponzeySkills.restoreBackupToTarget": "restoreBackupToTarget",
   "sponzeySkills.promoteBackupToSkillSource": "promoteBackupToSkillSource",
   "sponzeySkills.deleteBackup": "deleteBackup",
   "sponzeySkills.showDiagnostics": "showDiagnostics",

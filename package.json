@@ -1,7 +1,7 @@
 {
   "name": "sponzey-skills-manager",
   "displayName": "Sponzey Skills Manager",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "publisher": "atomsoft",
   "private": true,
   "type": "module",
@@ -26,6 +26,8 @@
     "build": "node scripts/check-architecture.mjs && node scripts/check-extension-manifest.mjs && node scripts/build-smoke.mjs",
     "check:architecture": "node scripts/check-architecture.mjs",
     "check:manifest": "node scripts/check-extension-manifest.mjs",
+    "check:vsix-candidate": "node scripts/package-vsix-candidate.mjs",
+    "package:vsix-candidate": "node scripts/package-vsix-candidate.mjs --package",
     "release:gate": "node scripts/release-gate.mjs",
     "run:extension-host": "scripts/run-vscode-extension-host.sh"
   },
@@ -177,6 +179,16 @@
         "icon": "$(archive)"
       },
       {
+        "command": "sponzeySkills.compareSkillBackup",
+        "title": "Sponzey Skills: Compare Skill Backup",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "sponzeySkills.restoreBackupToTarget",
+        "title": "Sponzey Skills: Restore Backup to Target",
+        "icon": "$(debug-restart)"
+      },
+      {
         "command": "sponzeySkills.promoteBackupToSkillSource",
         "title": "Sponzey Skills: Promote Backup to Skill Source",
         "icon": "$(repo-pull)"
@@ -190,6 +202,11 @@
         "command": "sponzeySkills.showDiagnostics",
         "title": "Sponzey Skills: Show Diagnostics",
         "icon": "$(warning)"
+      },
+      {
+        "command": "sponzeySkills.runDiagnosticAction",
+        "title": "Sponzey Skills: Run Diagnostic Action",
+        "icon": "$(play)"
       }
     ],
     "viewsContainers": {
@@ -347,14 +364,24 @@
           "group": "navigation@0"
         },
         {
-          "command": "sponzeySkills.promoteBackupToSkillSource",
+          "command": "sponzeySkills.compareSkillBackup",
           "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
           "group": "backup@1"
         },
         {
-          "command": "sponzeySkills.deleteBackup",
+          "command": "sponzeySkills.promoteBackupToSkillSource",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
+          "group": "backup@3"
+        },
+        {
+          "command": "sponzeySkills.restoreBackupToTarget",
           "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
           "group": "backup@2"
+        },
+        {
+          "command": "sponzeySkills.deleteBackup",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
+          "group": "backup@4"
         },
         {
           "command": "sponzeySkills.removeAppliedSkill",
@@ -445,6 +472,16 @@
           "command": "sponzeySkills.openSkillMd",
           "when": "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
           "group": "open@1"
+        },
+        {
+          "command": "sponzeySkills.runDiagnosticAction",
+          "when": "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sponzeySkills.runDiagnosticAction",
+          "when": "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnostic",
+          "group": "navigation@0"
         }
       ]
     },

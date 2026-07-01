@@ -1,0 +1,94 @@
+name: Release VSIX
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-register-vsix:
+    name: Build VSIX from tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tag source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Classify release tag
+        id: tag_policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          RELEASE_TAG="v${VERSION}"
+          BUILD_ONLY_TAG="${RELEASE_TAG}a"
+
+          if [ "${GITHUB_REF_NAME}" = "${RELEASE_TAG}" ]; then
+            echo "release_mode=release" >> "${GITHUB_OUTPUT}"
+            echo "register_release=true" >> "${GITHUB_OUTPUT}"
+            echo "base_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          elif [ "${GITHUB_REF_NAME}" = "${BUILD_ONLY_TAG}" ]; then
+            echo "release_mode=build-only" >> "${GITHUB_OUTPUT}"
+            echo "register_release=false" >> "${GITHUB_OUTPUT}"
+            echo "base_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}. Expected ${RELEASE_TAG} for release or ${BUILD_ONLY_TAG} for build-only." >&2
+            exit 1
+          fi
+
+      - name: Install project dependencies
+        run: npm install
+
+      - name: Install local VSIX packaging tool
+        run: npm install --no-save --no-package-lock @vscode/vsce
+
+      - name: Run release gate
+        run: npm run release:gate
+
+      - name: Package VSIX candidate
+        run: npm run package:vsix-candidate
+
+      - name: Resolve VSIX artifact path
+        id: vsix
+        shell: bash
+        run: |
+          set -euo pipefail
+          VSIX_PATH="$(find .dist -maxdepth 1 -name "*.vsix" -print -quit)"
+          if [ -z "${VSIX_PATH}" ]; then
+            echo "No VSIX artifact found in .dist." >&2
+            exit 1
+          fi
+          echo "path=${VSIX_PATH}" >> "${GITHUB_OUTPUT}"
+          echo "name=$(basename "${VSIX_PATH}")" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.vsix.outputs.name }}
+          path: ${{ steps.vsix.outputs.path }}
+          if-no-files-found: error
+
+      - name: Register VSIX in GitHub Release
+        if: steps.tag_policy.outputs.register_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          VSIX_PATH: ${{ steps.vsix.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${VSIX_PATH}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${VSIX_PATH}" --title "${TAG_NAME}" --notes "VSIX build for ${TAG_NAME}"
+          fi

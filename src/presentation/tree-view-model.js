@@ -343,6 +343,7 @@ function diagnosticItem({ diagnostic, index, severity, category, sourceById }) {
     contextValue: source ? "sponzeyDiagnosticWithSource" : "sponzeyDiagnostic",
     source,
     diagnostic: diagnosticFromReadModel(diagnostic),
+    diagnosticActions: diagnosticActionsFromReadModel(diagnostic),
   });
 }
 
@@ -393,6 +394,7 @@ function item({
   appliedSkill,
   backup,
   diagnostic,
+  diagnosticActions,
   iconId,
 }) {
   const treeItem = {
@@ -430,6 +432,10 @@ function item({
 
   if (diagnostic) {
     treeItem.diagnostic = diagnostic;
+  }
+
+  if (diagnosticActions) {
+    treeItem.diagnosticActions = diagnosticActions;
   }
 
   return treeItem;
@@ -478,6 +484,37 @@ function diagnosticDescription(diagnostic) {
     textOrNull(diagnostic.targetPath);
 
   return [context, diagnostic.severity].filter(Boolean).join(" · ");
+}
+
+function diagnosticActionsFromReadModel(diagnostic) {
+  const allowedActions = Array.isArray(diagnostic?.allowedActions)
+    ? diagnostic.allowedActions
+    : [];
+  const blockedActions = Array.isArray(diagnostic?.blockedActions)
+    ? diagnostic.blockedActions
+    : [];
+
+  if (allowedActions.length === 0 && blockedActions.length === 0) {
+    return undefined;
+  }
+
+  return {
+    allowedActionCodes: actionCodes(allowedActions),
+    blockedActionCodes: actionCodes(blockedActions),
+    confirmationRequiredActionCodes: actionCodes(
+      allowedActions.filter((action) => action?.requiresConfirmation === true),
+    ),
+    hasBlockedActions: blockedActions.length > 0,
+    hasMutatingAllowedActions: allowedActions.some(
+      (action) => action?.mutatesTarget === true,
+    ),
+  };
+}
+
+function actionCodes(actions) {
+  return actions
+    .map((action) => textOrNull(action?.code))
+    .filter((code) => code !== null);
 }
 
 function textOrNull(value) {

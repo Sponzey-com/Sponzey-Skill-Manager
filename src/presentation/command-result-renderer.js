@@ -107,6 +107,14 @@ function createMessage({ prefix, result, diagnostic, event }) {
       return `${prefix}: ${event.code} - Restart Codex or start a new Codex session if the skill is not visible.`;
     }
 
+    const backupLifecycleMessage = createBackupLifecycleMessage({
+      result,
+      event,
+    });
+    if (backupLifecycleMessage) {
+      return `${prefix}: ${event.code} - ${backupLifecycleMessage}`;
+    }
+
     return `${prefix}: ${event.code}`;
   }
 
@@ -150,6 +158,50 @@ function createAnalysisCompletedMessage({ prefix, event }) {
   }
 
   return `${prefix}: ${event.code} - ${skillCount} ${pluralize(skillCount, "skill")} analyzed, ${diagnosticCount} ${pluralize(diagnosticCount, "diagnostic")} found. Check Diagnostics for details.`;
+}
+
+function createBackupLifecycleMessage({ result, event }) {
+  if (event?.code === "skill.backup.compare.completed") {
+    return createBackupCompareMessage({ result, event });
+  }
+
+  if (event?.code === "skill.backup.restore.completed") {
+    return createBackupRestoreMessage({ result });
+  }
+
+  if (event?.code === "skill.backup.delete.completed") {
+    return "Deleted backup snapshot.";
+  }
+
+  return "";
+}
+
+function createBackupCompareMessage({ result, event }) {
+  const backupOnlyFileCount = numberOrZero(
+    event?.backupOnlyFileCount ?? result?.comparison?.backupOnlyFileCount,
+  );
+  const referenceOnlyFileCount = numberOrZero(
+    event?.referenceOnlyFileCount ?? result?.comparison?.referenceOnlyFileCount,
+  );
+  const modifiedFileCount = numberOrZero(
+    event?.modifiedFileCount ?? result?.comparison?.modifiedFileCount,
+  );
+  const hasDifferences =
+    backupOnlyFileCount + referenceOnlyFileCount + modifiedFileCount > 0;
+
+  if (!hasDifferences) {
+    return "Backup is in sync with reference.";
+  }
+
+  return `Backup differs: ${backupOnlyFileCount} backup-only, ${referenceOnlyFileCount} reference-only, ${modifiedFileCount} modified.`;
+}
+
+function createBackupRestoreMessage({ result }) {
+  const restored = result?.restored ?? {};
+  const skillName = displayText(restored.skillName, "skill");
+  const snapshotId = displayText(restored.snapshotId, "selected snapshot");
+
+  return `Restored ${skillName} from backup ${snapshotId} to selected target.`;
 }
 
 function isCodexGlobalApplyResult({ result, event }) {

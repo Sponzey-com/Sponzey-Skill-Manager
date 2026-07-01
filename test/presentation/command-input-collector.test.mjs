@@ -1431,6 +1431,331 @@ test("collectCommandInput includes diagnostics in detail target choices", async 
   });
 });
 
+test("collectCommandInput prompts supported diagnostic remediation actions only", async () => {
+  const calls = [];
+  const diagnostic = {
+    code: "external-dependencies-detected",
+    severity: "warning",
+    category: "dependency",
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input: {
+      diagnostic,
+      diagnosticActions: {
+        allowedActionCodes: [
+          "open-skill-md",
+          "analyze-again",
+          "apply-skill-to-target",
+          "compare-backup",
+        ],
+        blockedActionCodes: [],
+        confirmationRequiredActionCodes: ["apply-skill-to-target"],
+      },
+    },
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "Analyze Again",
+          value: "analyze-again",
+        },
+      ],
+    }),
+  });
+
+  assert.equal(calls[0].options.placeHolder, "Select diagnostic action");
+  assert.deepEqual(
+    calls[0].items.map((item) => [item.label, item.value]),
+    [
+      ["Open SKILL.md", "open-skill-md"],
+      ["Analyze Again", "analyze-again"],
+      ["Compare Backup", "compare-backup"],
+      ["Apply Skill to Target", "apply-skill-to-target"],
+    ],
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      diagnostic,
+      diagnosticActions: {
+        allowedActionCodes: [
+          "open-skill-md",
+          "analyze-again",
+          "apply-skill-to-target",
+          "compare-backup",
+        ],
+        blockedActionCodes: [],
+        confirmationRequiredActionCodes: ["apply-skill-to-target"],
+      },
+      actionCode: "analyze-again",
+    },
+  });
+});
+
+test("collectCommandInput requires explicit confirmation for mutating diagnostic remediation", async () => {
+  const calls = [];
+  const input = {
+    diagnosticActions: {
+      allowedActionCodes: ["apply-skill-to-target"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["apply-skill-to-target"],
+    },
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input,
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "Apply Skill to Target",
+          value: "apply-skill-to-target",
+        },
+        {
+          label: "Confirm Apply",
+          value: true,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(calls[0].options.placeHolder, "Select diagnostic action");
+  assert.equal(calls[1].options.placeHolder, "Confirm diagnostic action");
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      ...input,
+      actionCode: "apply-skill-to-target",
+      confirmationProvided: true,
+    },
+  });
+});
+
+test("collectCommandInput prompts delete-backup diagnostic remediation confirmation", async () => {
+  const calls = [];
+  const input = {
+    diagnosticActions: {
+      allowedActionCodes: ["delete-backup"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: ["delete-backup"],
+    },
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input,
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "Delete Backup",
+          value: "delete-backup",
+        },
+        {
+          label: "Confirm Delete Backup",
+          value: true,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(calls[0].options.placeHolder, "Select diagnostic action");
+  assert.deepEqual(
+    calls[0].items.map((item) => item.label),
+    ["Delete Backup"],
+  );
+  assert.equal(calls[1].options.placeHolder, "Confirm diagnostic action");
+  assert.deepEqual(calls[1].items[0], {
+    label: "Confirm Delete Backup",
+    description: "Delete this backup snapshot.",
+    value: true,
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      ...input,
+      actionCode: "delete-backup",
+      confirmationProvided: true,
+    },
+  });
+});
+
+test("collectCommandInput cancels mutating diagnostic remediation without confirmation", async () => {
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input: {
+      actionCode: "apply-skill-to-target",
+      diagnosticActions: {
+        allowedActionCodes: ["apply-skill-to-target"],
+        blockedActionCodes: [],
+        confirmationRequiredActionCodes: ["apply-skill-to-target"],
+      },
+    },
+    window: fakeQuickPickWindow({
+      calls: [],
+      responses: [undefined],
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.result.cancelled, true);
+});
+
+test("collectCommandInput preserves existing diagnostic action code without prompting", async () => {
+  const calls = [];
+  const input = {
+    actionCode: "open-skill-md",
+    diagnosticActions: {
+      allowedActionCodes: ["open-skill-md"],
+      blockedActionCodes: [],
+      confirmationRequiredActionCodes: [],
+    },
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input,
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [],
+    }),
+  });
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(result, {
+    ok: true,
+    input,
+  });
+});
+
+test("collectCommandInput returns unavailable when diagnostic has no supported actions", async () => {
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.runDiagnosticAction",
+    input: {
+      diagnosticActions: {
+        allowedActionCodes: ["delete-source-skill"],
+        blockedActionCodes: [],
+        confirmationRequiredActionCodes: [],
+      },
+    },
+    window: fakeQuickPickWindow({
+      calls: [],
+      responses: [],
+    }),
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    result: {
+      ok: false,
+      diagnostics: [
+        {
+          code: "command-input-unavailable",
+          severity: "error",
+          message: "No supported diagnostic actions are available.",
+        },
+      ],
+      events: [
+        {
+          level: "ProductLog",
+          code: "command.input.unavailable",
+          commandId: "sponzeySkills.runDiagnosticAction",
+        },
+      ],
+    },
+  });
+});
+
+test("collectCommandInput prompts backup compare reference folder", async () => {
+  const calls = [];
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.compareSkillBackup",
+    input: {
+      backup: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/repo/backups/alpha/snapshot-001",
+      },
+    },
+    window: fakeImportWindow({
+      calls,
+      openDialogResponses: [[{ fsPath: "/repo/skills/alpha" }]],
+      inputResponses: [],
+      quickPickResponses: [],
+    }),
+  });
+
+  assert.deepEqual(calls.map((call) => call.kind), ["openDialog"]);
+  assert.equal(calls[0].options.openLabel, "Select Reference Skill Folder");
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      backup: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/repo/backups/alpha/snapshot-001",
+      },
+      referencePath: "/repo/skills/alpha",
+    },
+  });
+});
+
+test("collectCommandInput prompts backup restore target and overwrite confirmation", async () => {
+  const calls = [];
+  const backup = {
+    skillName: "alpha",
+    snapshotId: "snapshot-001",
+    backupPath: "/repo/backups/alpha/snapshot-001",
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.restoreBackupToTarget",
+    input: { backup },
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "global:codex",
+          value: {
+            target: {
+              id: "global:codex",
+              clientType: "codex",
+              scope: "global",
+              targetPath: "/global",
+            },
+          },
+        },
+        {
+          label: "Restore and overwrite target if needed",
+          value: true,
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return removeReadModel();
+    },
+  });
+
+  assert.deepEqual(
+    calls.map((call) => call.options.placeHolder),
+    [
+      "Select target to restore backup to",
+      "Restore backup and overwrite target if it exists?",
+    ],
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      backup,
+      target: {
+        id: "global:codex",
+        clientType: "codex",
+        scope: "global",
+        targetPath: "/global",
+      },
+      overwriteConfirmed: true,
+    },
+  });
+});
+
 test("collectCommandInput prompts update copy selection and confirmation for target changes", async () => {
   const calls = [];
   const result = await collectCommandInput({

@@ -196,6 +196,73 @@ test("refreshSponzeyTreeDataProviders updates all provider caches", async () => 
   );
 });
 
+test("diagnostics tree provider preserves action payload and legacy context value", async () => {
+  const provider = createSkillsTreeDataProvider({
+    viewId: "sponzeySkills.diagnostics",
+    async loadReadModel() {
+      return {
+        ...sampleReadModel(),
+        mainRepositorySkills: [
+          {
+            id: "alpha",
+            name: "alpha",
+            status: "inactive",
+            sourcePath: "/repo/skills/alpha",
+          },
+        ],
+        diagnostics: [
+          {
+            code: "missing-description",
+            severity: "warning",
+            category: "quality",
+            message: "Skill description is missing.",
+            sourceId: "alpha",
+            allowedActions: [
+              {
+                code: "open-skill-md",
+                sideEffect: "open-file",
+                mutatesTarget: false,
+                requiresConfirmation: false,
+                safety: "safe",
+              },
+              {
+                code: "apply-skill-to-target",
+                sideEffect: "target-write",
+                mutatesTarget: true,
+                requiresConfirmation: true,
+                safety: "confirmation-required",
+              },
+            ],
+            blockedActions: [],
+          },
+        ],
+      };
+    },
+  });
+
+  const severityGroups = await provider.getChildren();
+  const categoryGroups = await provider.getChildren(severityGroups[0]);
+  const diagnosticItems = await provider.getChildren(categoryGroups[0]);
+  const diagnosticItem = diagnosticItems[0];
+
+  assert.deepEqual(diagnosticItem.diagnosticActions, {
+    allowedActionCodes: ["open-skill-md", "apply-skill-to-target"],
+    blockedActionCodes: [],
+    confirmationRequiredActionCodes: ["apply-skill-to-target"],
+    hasBlockedActions: false,
+    hasMutatingAllowedActions: true,
+  });
+  assert.deepEqual(provider.getTreeItem(diagnosticItem), {
+    id: "diagnostic:warning:quality:missing-description:0",
+    label: "missing-description",
+    description: "alpha · warning",
+    tooltip: "Skill description is missing.",
+    iconPath: { id: "warning" },
+    contextValue: "sponzeyDiagnosticWithSource",
+    collapsibleState: 0,
+  });
+});
+
 test("registerSponzeyTreeDataProviders registers every contributed view", () => {
   const registered = [];
   const providers = createSkillsTreeDataProviders({
