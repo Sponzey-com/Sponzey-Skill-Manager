@@ -5,6 +5,8 @@ const allowedTreeItemContextValues = new Set([
   "sponzeySkillTarget",
   "sponzeyAppliedSkill",
   "sponzeySkillBackup",
+  "sponzeyDiagnostic",
+  "sponzeyDiagnosticWithSource",
 ]);
 
 const requiredConfigurationProperties = new Map([
@@ -63,6 +65,7 @@ export async function validateExtensionManifest({
     );
   }
 
+  validatePackagingMetadata({ packageJson, diagnostics });
   const commandIds = validateCommands({ packageJson, diagnostics });
   const viewIds = await validateViews({ packageJson, diagnostics, fileExists });
   validateViewItemMenus({
@@ -77,6 +80,44 @@ export async function validateExtensionManifest({
     ok: diagnostics.length === 0,
     diagnostics,
   };
+}
+
+function validatePackagingMetadata({ packageJson, diagnostics }) {
+  if (!hasText(packageJson.displayName)) {
+    diagnostics.push(
+      diagnostic({
+        code: "manifest-display-name-missing",
+        message: "Extension manifest must declare displayName.",
+      }),
+    );
+  }
+
+  if (!nonEmptyStringArray(packageJson.categories)) {
+    diagnostics.push(
+      diagnostic({
+        code: "manifest-categories-missing",
+        message: "Extension manifest must declare at least one category.",
+      }),
+    );
+  }
+
+  if (!nonEmptyStringArray(packageJson.keywords)) {
+    diagnostics.push(
+      diagnostic({
+        code: "manifest-keywords-missing",
+        message: "Extension manifest must declare release keywords.",
+      }),
+    );
+  }
+
+  if (!nonEmptyStringArray(packageJson.extensionKind)) {
+    diagnostics.push(
+      diagnostic({
+        code: "manifest-extension-kind-missing",
+        message: "Extension manifest must declare extensionKind.",
+      }),
+    );
+  }
 }
 
 function validateConfiguration({ packageJson, diagnostics }) {
@@ -380,6 +421,10 @@ function propertyHasType(property, expectedType) {
 
 function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function nonEmptyStringArray(value) {
+  return Array.isArray(value) && value.some(hasText);
 }
 
 function diagnostic(fields) {

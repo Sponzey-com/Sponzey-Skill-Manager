@@ -216,6 +216,102 @@ test("applySkillToTarget requires confirmation for high risk", async () => {
   ]);
 });
 
+test("applySkillToTarget reports overwrite preservation when copy target exists", async () => {
+  const result = await applySkillToTarget({
+    context: { defaultApplyMode: "copy" },
+    input: {
+      source: sourceSkill(),
+      target: globalTarget(),
+      applyMode: "copy",
+      confirmationProvided: true,
+    },
+    analyzer: {
+      async analyzeSourceSkill() {
+        return { riskLevel: "low", diagnostics: [] };
+      },
+    },
+    targetStore: {
+      async copySkillToTarget() {
+        return {
+          ok: false,
+          error: {
+            code: "target-overwrite-rejected",
+            severity: "error",
+            message: "Target destination already exists.",
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.diagnostics, [
+    {
+      code: "target-overwrite-rejected",
+      severity: "error",
+      category: "conflict",
+      riskLevel: "low",
+      message: "Target destination already exists. Existing target was preserved.",
+      recommendation:
+        "Back up, move, or remove the existing target skill before applying this source.",
+      preservationPolicy: "preserve-existing-target",
+    },
+  ]);
+  assert.deepEqual(result.events, [
+    {
+      level: "ProductLog",
+      code: "skill.apply.blocked",
+      skillName: "alpha",
+      targetId: "global:codex",
+      reason: "target-overwrite-rejected",
+    },
+  ]);
+  assert.deepEqual(result.steps, [
+    "ValidatingInput",
+    "AnalyzingRisk",
+    "CheckingRiskPolicy",
+    "WritingTarget",
+    "WriteFailed",
+  ]);
+});
+
+test("applySkillToTarget reports overwrite preservation when symlink target exists", async () => {
+  const result = await applySkillToTarget({
+    context: { defaultApplyMode: "copy" },
+    input: {
+      source: sourceSkill(),
+      target: globalTarget(),
+      applyMode: "symlink",
+      confirmationProvided: true,
+    },
+    analyzer: {
+      async analyzeSourceSkill() {
+        return { riskLevel: "low", diagnostics: [] };
+      },
+    },
+    targetStore: {
+      async linkSkillToTarget() {
+        return {
+          ok: false,
+          error: {
+            code: "target-overwrite-rejected",
+            severity: "error",
+            message: "Target destination already exists.",
+          },
+        };
+      },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(
+    result.diagnostics[0].preservationPolicy,
+    "preserve-existing-target",
+  );
+  assert.equal(result.diagnostics[0].category, "conflict");
+  assert.equal(result.events[0].reason, "target-overwrite-rejected");
+});
+
 test("removeAppliedSkill removes managed target entry only", async () => {
   const calls = [];
   const result = await removeAppliedSkill({

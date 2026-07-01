@@ -36,6 +36,31 @@ test("extension manifest validation reports missing vscode engine", async () => 
   assert.equal(result.diagnostics[0].code, "manifest-missing-vscode-engine");
 });
 
+test("extension manifest validation reports missing packaging metadata", async () => {
+  const packageJson = validPackageJson();
+  delete packageJson.displayName;
+  delete packageJson.categories;
+  delete packageJson.keywords;
+  delete packageJson.extensionKind;
+  const result = await validateExtensionManifest({
+    packageJson,
+    async fileExists() {
+      return true;
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    result.diagnostics.map((diagnostic) => diagnostic.code),
+    [
+      "manifest-display-name-missing",
+      "manifest-categories-missing",
+      "manifest-keywords-missing",
+      "manifest-extension-kind-missing",
+    ],
+  );
+});
+
 test("extension manifest validation reports missing main entrypoint", async () => {
   const result = await validateExtensionManifest({
     packageJson: validPackageJson(),
@@ -135,9 +160,13 @@ test("package build script includes manifest check", async () => {
 function validPackageJson() {
   return {
     name: "sponzey-skills-manager",
+    displayName: "Sponzey Skills Manager",
     version: "0.0.0",
     type: "module",
     main: "./src/extension.js",
+    categories: ["Other"],
+    keywords: ["agent-skills", "codex", "claude"],
+    extensionKind: ["workspace"],
     engines: {
       vscode: "^1.95.0",
       node: ">=22.0.0",

@@ -1,3 +1,5 @@
+import { createBuiltInAnalyzerPolicyPack } from "../../domain/index.js";
+
 const RISK_ORDER = {
   low: 0,
   medium: 1,
@@ -6,14 +8,12 @@ const RISK_ORDER = {
 };
 
 export function analyzeSkillDirectory({ directoryName, files }) {
+  const policyPack = createBuiltInAnalyzerPolicyPack();
   const steps = ["LoadingSkillDirectory"];
   const skillMd = files?.["SKILL.md"];
 
   if (typeof skillMd !== "string") {
-    return {
-      manifest: {},
-      body: "",
-      dependencies: [],
+    const diagnostics = normalizePolicyDiagnostics({
       diagnostics: [
         {
           code: "missing-skill-md",
@@ -24,6 +24,16 @@ export function analyzeSkillDirectory({ directoryName, files }) {
           recommendation: "Add a SKILL.md file at the root of the skill directory.",
         },
       ],
+      policyPack,
+    });
+
+    return {
+      manifest: {},
+      body: "",
+      dependencies: [],
+      diagnostics,
+      policyVersion: policyPack.version,
+      policyRuleCodes: policyRuleCodesFromDiagnostics(diagnostics),
       riskLevel: "critical",
       steps: [...steps, "MissingSkillMd"],
     };
@@ -51,13 +61,19 @@ export function analyzeSkillDirectory({ directoryName, files }) {
   diagnostics.push(...runCompatibilityRules({ body: parsed.body, manifest: parsed.manifest }));
 
   steps.push("CalculatingRisk");
+  const normalizedDiagnostics = normalizePolicyDiagnostics({
+    diagnostics,
+    policyPack,
+  });
   const riskLevel = aggregateRiskLevel(diagnostics);
 
   return {
     manifest: parsed.manifest,
-    body: parsed.body,
+    body: "",
     dependencies,
-    diagnostics,
+    diagnostics: normalizedDiagnostics,
+    policyVersion: policyPack.version,
+    policyRuleCodes: policyRuleCodesFromDiagnostics(normalizedDiagnostics),
     riskLevel,
     steps: [...steps, "Completed"],
   };
@@ -291,27 +307,35 @@ function extractDependencies({ body, manifest }) {
   const dependencies = [];
 
   for (const match of text.matchAll(/\bmcp(?:Server|[_ -]?server)?[:= ]+([A-Za-z0-9._/-]+)/gi)) {
-    dependencies.push(dependency("mcp", match[1]));
+    dependencies.push(dependency("mcp", match[1], "mcp"));
   }
 
   for (const match of text.matchAll(/\b(?:curl|wget|fetch)\s+(https?:\/\/[^\s)]+)/gi)) {
-    dependencies.push(dependency("network", redactUrl(match[1])));
+    dependencies.push(dependency("network", redactUrl(match[1]), "network"));
   }
 
   for (const match of text.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) {
     if (/(TOKEN|SECRET|KEY|HOST|URL|PATH)$/.test(match[0])) {
-      dependencies.push(dependency("environment", match[0]));
+      dependencies.push(dependency("environment", match[0], "environment"));
     }
   }
 
-  for (const match of text.matchAll(/\b(?:npm|pnpm|yarn|pip|uv|cargo|go)\s+[A-Za-z0-9:_./-]+/gi)) {
-    dependencies.push(dependency("shell-command", match[0].split(/\s+/)[0]));
+  for (const match of text.matchAll(/\b(?:requires?|needs?)\s+(node(?:\.js)?|python|deno|bun|ruby|go)\b/gi)) {
+    dependencies.push(dependency("runtime", runtimeName(match[1]), "runtime"));
+  }
+
+  for (const match of text.matchAll(/\b(npm|pnpm|yarn|pip|uv|cargo|go)\s+[A-Za-z0-9:_./-]+/gi)) {
+    dependencies.push(dependency("tool", match[1].toLowerCase(), "tool"));
   }
 
   return uniqueDependencies(dependencies);
 }
 
 function runDependencyRules({ dependencies }) {
+  const dependencyCategories = uniqueStrings(
+    dependencies.map((item) => item.category ?? item.type),
+  );
+
   return dependencies.length > 0
     ? [
         {
@@ -322,6 +346,7 @@ function runDependencyRules({ dependencies }) {
           message: "Skill declares external dependencies.",
           recommendation: "Review external dependencies before applying this skill.",
           dependencyCount: dependencies.length,
+          dependencyCategories,
         },
       ]
     : [];
@@ -369,12 +394,39 @@ function aggregateRiskLevel(diagnostics) {
   return current;
 }
 
+function normalizePolicyDiagnostics({ diagnostics, policyPack }) {
+  const ruleByCode = new Map(
+    policyPack.rules.map((rule) => [rule.code, rule]),
+  );
+
+  return diagnostics.map((diagnostic) => {
+    const rule = ruleByCode.get(diagnostic.code);
+    if (!rule) {
+      return diagnostic;
+    }
+
+    return {
+      ...diagnostic,
+      policyRuleCode: rule.code,
+      policyVersion: policyPack.version,
+    };
+  });
+}
+
+function policyRuleCodesFromDiagnostics(diagnostics) {
+  return uniqueStrings(
+    diagnostics
+      .map((diagnostic) => diagnostic.policyRuleCode)
+      .filter((code) => typeof code === "string" && code.length > 0),
+  );
+}
+
 function trimReferencePath(referencePath) {
   return referencePath.replace(/[),.;:!?]+$/g, "");
 }
 
-function dependency(type, name) {
-  return Object.freeze({ type, name });
+function dependency(type, name, category) {
+  return Object.freeze({ type, name, category });
 }
 
 function uniqueDependencies(dependencies) {
@@ -398,4 +450,29 @@ function redactUrl(url) {
   } catch {
     return "network-url";
   }
+}
+
+function runtimeName(value) {
+  const normalized = String(value ?? "").toLowerCase();
+  if (normalized.startsWith("node")) return "node";
+  if (normalized.startsWith("python")) return "python";
+  if (normalized.startsWith("deno")) return "deno";
+  if (normalized.startsWith("bun")) return "bun";
+  if (normalized.startsWith("ruby")) return "ruby";
+  if (normalized.startsWith("go")) return "go";
+  return normalized.split(/\s+/)[0];
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const unique = [];
+
+  for (const value of values) {
+    if (!seen.has(value)) {
+      seen.add(value);
+      unique.push(value);
+    }
+  }
+
+  return unique;
 }

@@ -52,7 +52,7 @@ export async function applySkillToTarget({
     return applyBlocked({
       source: input.source,
       target: input.target,
-      decision: writeResult.error,
+      decision: normalizeApplyWriteFailure(writeResult.error),
       steps: [...steps, "WriteFailed"],
     });
   }
@@ -176,6 +176,22 @@ function applyBlocked({ source, target, decision, steps }) {
       },
     ],
     steps,
+  };
+}
+
+function normalizeApplyWriteFailure(error) {
+  if (error?.code !== "target-overwrite-rejected") {
+    return error;
+  }
+
+  return {
+    ...error,
+    category: "conflict",
+    riskLevel: "low",
+    message: "Target destination already exists. Existing target was preserved.",
+    recommendation:
+      "Back up, move, or remove the existing target skill before applying this source.",
+    preservationPolicy: "preserve-existing-target",
   };
 }
 

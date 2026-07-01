@@ -43,11 +43,19 @@ export function wrapCommandHandlerWithResultRendering({ handler, window }) {
 
 function createCommandResultRendering({ result, prefix }) {
   const diagnostic = selectDiagnostic(result?.diagnostics);
+  const detail = selectDetail(result?.detail);
   const event = selectProductEvent(result?.events);
   if (isAnalysisCompletedEvent(event)) {
     return {
       level: selectAnalysisRenderLevel(result?.diagnostics),
       message: createAnalysisCompletedMessage({ prefix, event }),
+    };
+  }
+
+  if (result?.ok !== false && detail) {
+    return {
+      level: selectDetailRenderLevel(detail),
+      message: createDetailMessage({ prefix, detail }),
     };
   }
 
@@ -77,6 +85,14 @@ function selectProductEvent(events) {
   );
 }
 
+function selectDetail(detail) {
+  if (!detail || typeof detail !== "object" || typeof detail.type !== "string") {
+    return null;
+  }
+
+  return detail;
+}
+
 function createMessage({ prefix, result, diagnostic, event }) {
   if (diagnostic) {
     const diagnosticMessage =
@@ -103,6 +119,26 @@ function createMessage({ prefix, result, diagnostic, event }) {
   }
 
   return `${prefix}: command completed`;
+}
+
+function createDetailMessage({ prefix, detail }) {
+  if (detail.type === "source") {
+    return `${prefix}: skill.detail.ready - ${displayText(detail.name, "source skill")} source detail. Use Open SKILL.md to inspect files.`;
+  }
+
+  if (detail.type === "applied") {
+    return `${prefix}: skill.detail.ready - ${displayText(detail.name, "applied skill")} applied detail. Use Open Target Folder to inspect installed files.`;
+  }
+
+  if (detail.type === "backup") {
+    return `${prefix}: skill.detail.ready - ${displayText(detail.skillName, "skill")} backup ${displayText(detail.snapshotId, "snapshot")}. Use Promote Backup or Delete Backup from context menu.`;
+  }
+
+  if (detail.type === "diagnostic") {
+    return `${prefix}: skill.detail.ready - ${displayText(detail.code, "diagnostic")} diagnostic. Review recommendation before applying.`;
+  }
+
+  return `${prefix}: skill.detail.ready`;
 }
 
 function createAnalysisCompletedMessage({ prefix, event }) {
@@ -134,6 +170,18 @@ function selectRenderLevel({ result, diagnostic }) {
   }
 
   if (diagnostic?.severity === "warning") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function selectDetailRenderLevel(detail) {
+  if (detail.type === "diagnostic" && ERROR_SEVERITIES.has(detail.severity)) {
+    return "error";
+  }
+
+  if (detail.type === "diagnostic" && detail.severity === "warning") {
     return "warning";
   }
 
@@ -176,4 +224,12 @@ function numberOrZero(value) {
 
 function pluralize(count, singular) {
   return count === 1 ? singular : `${singular}s`;
+}
+
+function displayText(value, fallback) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+
+  return fallback;
 }

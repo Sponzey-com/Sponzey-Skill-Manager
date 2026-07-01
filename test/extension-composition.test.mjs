@@ -5,6 +5,7 @@ import { createExtensionComposition } from "../src/extension-composition.js";
 
 test("createExtensionComposition reads settings once and wires refresh command", async () => {
   let settingsReadCount = 0;
+  const analysisStoreCalls = [];
   const composition = await createExtensionComposition({
     settingsReader: {
       async readSettings() {
@@ -34,6 +35,19 @@ test("createExtensionComposition reads settings once and wires refresh command",
           throw new Error("target scan must not be called without targets");
         },
       },
+      analysisStore: {
+        async readAnalysisMetadata(input) {
+          analysisStoreCalls.push(input);
+          return {
+            ok: false,
+            error: {
+              code: "analysis-metadata-not-found",
+              severity: "warning",
+              message: "Analysis metadata was not found.",
+            },
+          };
+        },
+      },
     },
   });
 
@@ -43,6 +57,12 @@ test("createExtensionComposition reads settings once and wires refresh command",
   assert.equal(composition.ok, true);
   assert.equal(result.ok, true);
   assert.equal(result.readModel.mainRepositorySkills[0].name, "alpha");
+  assert.deepEqual(analysisStoreCalls, [
+    {
+      repositoryPath: "/repo",
+      skillId: "alpha",
+    },
+  ]);
 });
 
 test("createExtensionComposition wires import and apply commands with default analyzer", async () => {

@@ -5,6 +5,7 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 ## Core Concepts
 
 - Main Repository stores source skills only.
+- Main Repository is a source repository, not a Global Target.
 - Global Targets and Project Targets are where agent clients read applied skills.
 - Repository registration supports Codex, Claude, or all supported agent clients.
 - Applied Global and Project skill rows show an agent badge icon for Codex or Claude.
@@ -57,9 +58,14 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - If the Main Repository is missing, the extension recreates `~/SponzeySkills` on the next command that needs a source repository.
 - If no global target is configured, applying to a global target registers `~/.agents/skills` automatically.
 - If a newly applied Codex global skill does not appear in another Codex instance, restart Codex or start a new Codex session so it rescans `$HOME/.agents/skills`.
+- If a newly applied Claude global skill does not appear in another Claude session, restart Claude or start a new Claude session so it rescans `$HOME/.claude/skills`.
 - If the Main Repository is invalid, run `Sponzey Skills: Set Main Repository` and choose a valid source repository path.
 - If a target path overlaps the Main Repository, choose a separate source repository path.
+- If a filesystem permission error appears, choose a repository or target directory that the current OS user can read and write, then run `Sponzey Skills: Refresh Skills`.
+- If watcher refresh is unavailable or blocked by the host environment, use `Sponzey Skills: Refresh Skills` manually.
+- If Diagnostics shows warnings or errors, open the diagnostic detail and review severity, category, recommendation, and source or target context before applying or deleting skills.
 - If a copy update is blocked, inspect sync status and provide explicit confirmation only when overwriting local target changes is intended.
+- Product Log contains minimal user-impacting operation results. Field Debug Log is for limited local troubleshooting and should not contain skill bodies or secrets.
 
 ## Development
 

@@ -10,6 +10,13 @@ export const SPONZEY_TREE_VIEWS = Object.freeze([
 ]);
 
 export function mapSkillsReadModelToTreeItems(readModel) {
+  const sourceById = new Map(
+    (readModel.mainRepositorySkills ?? []).map((skill) => [
+      skill.id ?? skill.name,
+      sourceFromSkill(skill),
+    ]),
+  );
+
   return [
     section("mainRepositorySkills", "Main Repository", [
       ...(readModel.mainRepositorySkills ?? []).map((skill) =>
@@ -35,17 +42,14 @@ export function mapSkillsReadModelToTreeItems(readModel) {
       "Project Skills",
       flatAppliedSkillItems(readModel.projectSkills ?? []),
     ),
-    section("diagnostics", "Diagnostics", [
-      ...(readModel.diagnostics ?? []).map((diagnostic, index) =>
-        item({
-          id: `diagnostic:${diagnostic.code}:${index}`,
-          label: diagnostic.code,
-          description: diagnosticDescription(diagnostic),
-          detail: diagnostic.message,
-          iconId: iconIdForDiagnostic(diagnostic),
-        }),
-      ),
-    ]),
+    section(
+      "diagnostics",
+      "Diagnostics",
+      diagnosticSectionItems({
+        diagnostics: readModel.diagnostics ?? [],
+        sourceById,
+      }),
+    ),
   ];
 }
 
@@ -127,6 +131,16 @@ function section(id, label, children) {
   });
 }
 
+function sectionWithIcon(id, label, children, iconId) {
+  return item({
+    id,
+    label,
+    collapsible: true,
+    children,
+    iconId,
+  });
+}
+
 function sourceFromSkill(skill) {
   const source = {
     id: skill.id ?? skill.name,
@@ -142,6 +156,21 @@ function sourceFromSkill(skill) {
   }
   if (skill.lastAnalyzedAt !== undefined) {
     source.lastAnalyzedAt = skill.lastAnalyzedAt;
+  }
+  if (skill.analysisStatus !== undefined) {
+    source.analysisStatus = skill.analysisStatus;
+  }
+  if (skill.lastAnalyzedSourceHash !== undefined) {
+    source.lastAnalyzedSourceHash = skill.lastAnalyzedSourceHash;
+  }
+  if (skill.diagnostics !== undefined) {
+    source.diagnostics = skill.diagnostics;
+  }
+  if (skill.dependencies !== undefined) {
+    source.dependencies = skill.dependencies;
+  }
+  if (skill.compatibility !== undefined) {
+    source.compatibility = skill.compatibility;
   }
   if ((skill.appliedTargets?.length ?? 0) > 0) {
     source.appliedTargetCount = skill.appliedTargets.length;
@@ -187,20 +216,52 @@ function appliedSkillFromSkill(skill) {
 }
 
 function backupFromBackupReadModel(backup) {
-  return {
+  const mapped = {
     skillName: backup.skillName,
     snapshotId: backup.snapshotId,
     backupPath: backup.backupPath,
     createdAt: backup.createdAt,
   };
+
+  if (backup.sourceHash !== undefined) {
+    mapped.sourceHash = backup.sourceHash;
+  }
+  if (backup.promotedStatus !== undefined) {
+    mapped.promotedStatus = backup.promotedStatus;
+  }
+  if (backup.metadata !== undefined) {
+    mapped.metadata = backup.metadata;
+  }
+  if (backup.targetId !== undefined) {
+    mapped.targetId = backup.targetId;
+  }
+  if (backup.targetPath !== undefined) {
+    mapped.targetPath = backup.targetPath;
+  }
+  if (backup.clientType !== undefined) {
+    mapped.clientType = backup.clientType;
+  }
+  if (backup.scope !== undefined) {
+    mapped.scope = backup.scope;
+  }
+
+  return mapped;
+}
+
+function diagnosticFromReadModel(diagnostic) {
+  return { ...diagnostic };
 }
 
 function sourceDescription(skill) {
   const count = skill.appliedTargets?.length ?? 0;
+  const parts = [skill.status];
   if (count > 0) {
-    return `${skill.status} · ${count} target${count === 1 ? "" : "s"}`;
+    parts.push(`${count} target${count === 1 ? "" : "s"}`);
   }
-  return skill.status;
+  if (skill.analysisStatus === "stale") {
+    parts.push("analysis stale");
+  }
+  return parts.filter(Boolean).join(" · ");
 }
 
 function appliedSkillDescription(skill) {
@@ -232,6 +293,93 @@ function appliedSkillDetailWithTarget({ group, skill }) {
   return [targetPath, skill.targetPath].filter(Boolean).join(" -> ");
 }
 
+function diagnosticSectionItems({ diagnostics, sourceById }) {
+  const entries = diagnostics.map((diagnostic, index) => ({
+    diagnostic,
+    index,
+  }));
+
+  return severityKeys(entries).map((severity) => {
+    const severityEntries = entries.filter(
+      (entry) => diagnosticSeverity(entry.diagnostic) === severity,
+    );
+    return sectionWithIcon(
+      `diagnostics:severity:${severity}`,
+      severity,
+      categoryKeys(severityEntries).map((category) => {
+        const categoryEntries = severityEntries.filter(
+          (entry) => diagnosticCategory(entry.diagnostic) === category,
+        );
+        return item({
+          id: `diagnostics:severity:${severity}:category:${category}`,
+          label: category,
+          description: itemCountDescription(categoryEntries.length),
+          collapsible: true,
+          children: categoryEntries.map((entry) =>
+            diagnosticItem({
+              diagnostic: entry.diagnostic,
+              index: entry.index,
+              severity,
+              category,
+              sourceById,
+            }),
+          ),
+        });
+      }),
+      iconIdForSeverity(severity),
+    );
+  });
+}
+
+function diagnosticItem({ diagnostic, index, severity, category, sourceById }) {
+  const source = sourceById.get(diagnostic.sourceId);
+
+  return item({
+    id: `diagnostic:${severity}:${category}:${diagnostic.code}:${index}`,
+    label: diagnostic.code,
+    description: diagnosticDescription(diagnostic),
+    detail: diagnostic.message,
+    iconId: iconIdForDiagnostic(diagnostic),
+    contextValue: source ? "sponzeyDiagnosticWithSource" : "sponzeyDiagnostic",
+    source,
+    diagnostic: diagnosticFromReadModel(diagnostic),
+  });
+}
+
+function severityKeys(entries) {
+  const keys = uniqueSortedKeys(entries.map((entry) =>
+    diagnosticSeverity(entry.diagnostic),
+  ));
+  const order = ["error", "warning", "info"];
+
+  return [
+    ...order.filter((severity) => keys.includes(severity)),
+    ...keys.filter((severity) => !order.includes(severity)),
+  ];
+}
+
+function categoryKeys(entries) {
+  return uniqueSortedKeys(entries.map((entry) =>
+    diagnosticCategory(entry.diagnostic),
+  ));
+}
+
+function uniqueSortedKeys(values) {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function diagnosticSeverity(diagnostic) {
+  return textOrNull(diagnostic.severity) ?? "info";
+}
+
+function diagnosticCategory(diagnostic) {
+  return textOrNull(diagnostic.category) ?? "uncategorized";
+}
+
+function itemCountDescription(count) {
+  return `${count} item${count === 1 ? "" : "s"}`;
+}
+
 function item({
   id,
   label,
@@ -244,6 +392,7 @@ function item({
   target,
   appliedSkill,
   backup,
+  diagnostic,
   iconId,
 }) {
   const treeItem = {
@@ -279,6 +428,10 @@ function item({
     treeItem.backup = backup;
   }
 
+  if (diagnostic) {
+    treeItem.diagnostic = diagnostic;
+  }
+
   return treeItem;
 }
 
@@ -303,11 +456,15 @@ function iconIdForTarget(group) {
 }
 
 function iconIdForDiagnostic(diagnostic) {
-  if (diagnostic.severity === "error") {
+  return iconIdForSeverity(diagnostic.severity);
+}
+
+function iconIdForSeverity(severity) {
+  if (severity === "error") {
     return "error";
   }
 
-  if (diagnostic.severity === "warning") {
+  if (severity === "warning") {
     return "warning";
   }
 

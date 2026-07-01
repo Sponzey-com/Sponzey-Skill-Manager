@@ -5,9 +5,11 @@ import {
   backupAppliedSkillToMainRepository,
   buildRuntimeContext,
   copyAppliedSkillToMainRepository,
+  createRepositorySnapshot,
   createRepositorySkillAnalyzer,
   createSkill,
   analyzeAllSkills,
+  compareSkillBackup,
   convertAppliedSkillMode,
   deleteBackup,
   deleteSourceSkill,
@@ -27,15 +29,20 @@ import {
   removeAppliedSkill,
   removeMainRepository,
   removeProjectRepository,
+  restoreBackupToTarget,
   setMainRepository,
   showDiagnostics,
   updateAppliedCopyFromSource,
 } from "./application/index.js";
 import {
+  FileSystemAnalysisStore,
+  FileSystemBackupComparisonPort,
   FileSystemHashPort,
+  FileSystemRepositoryIndexStore,
   FileSystemSkillRepository,
   FileSystemTargetStore,
   LocalGitSkillSourceResolver,
+  LocalGitVersionControlPort,
 } from "./infrastructure/index.js";
 import { createUseCaseCommandHandlers } from "./presentation/index.js";
 
@@ -68,10 +75,27 @@ export async function createExtensionComposition({
   }
 
   const context = runtimeContextResult.context;
+  const usesDefaultSkillRepository = adapters.skillRepository === undefined;
   const skillRepository =
     adapters.skillRepository ?? new FileSystemSkillRepository();
   const targetStore = adapters.targetStore ?? new FileSystemTargetStore();
   const hashPort = adapters.hashPort ?? new FileSystemHashPort();
+  const analysisStore = adapters.analysisStore ?? new FileSystemAnalysisStore();
+  const repositoryIndexStore = Object.hasOwn(adapters, "repositoryIndexStore")
+    ? adapters.repositoryIndexStore
+    : usesDefaultSkillRepository
+      ? new FileSystemRepositoryIndexStore()
+      : null;
+  const versionControlPort = Object.hasOwn(adapters, "versionControlPort")
+    ? adapters.versionControlPort
+    : usesDefaultSkillRepository
+      ? new LocalGitVersionControlPort()
+      : null;
+  const backupComparisonPort = Object.hasOwn(adapters, "backupComparisonPort")
+    ? adapters.backupComparisonPort
+    : usesDefaultSkillRepository
+      ? new FileSystemBackupComparisonPort()
+      : null;
   const skillSourceResolver =
     adapters.skillSourceResolver ?? new LocalGitSkillSourceResolver();
   const skillAnalyzer =
@@ -80,10 +104,15 @@ export async function createExtensionComposition({
     skillRepository,
     targetStore,
     hashPort,
+    analysisStore,
+    repositoryIndexStore,
+    versionControlPort,
+    backupComparisonPort,
     analyzer: skillAnalyzer,
     skillSourceResolver,
     settingsWriter: adapters.settingsWriter,
     repositoryOpener: adapters.repositoryOpener,
+    auditStore: adapters.auditStore,
   });
 
   return {
@@ -145,10 +174,15 @@ function createUseCaseBundle({
   skillRepository,
   targetStore,
   hashPort,
+  analysisStore,
+  repositoryIndexStore,
+  versionControlPort,
+  backupComparisonPort,
   analyzer,
   skillSourceResolver,
   settingsWriter,
-    repositoryOpener,
+  repositoryOpener,
+  auditStore,
 }) {
   const useCases = {
     ...createSettingsUseCaseBundle({ settingsWriter, skillRepository }),
@@ -164,6 +198,22 @@ function createUseCaseBundle({
         skillRepository,
         targetStore,
         hashPort,
+        analysisStore,
+        repositoryIndexStore,
+        versionControlPort,
+      });
+    },
+    async createRepositorySnapshot({ context, input }) {
+      return createRepositorySnapshot({
+        context,
+        input,
+        versionControlPort,
+      });
+    },
+    async compareSkillBackup({ input }) {
+      return compareSkillBackup({
+        input,
+        backupComparisonPort,
       });
     },
     async createSkill({ context, input }) {
@@ -206,6 +256,8 @@ function createUseCaseBundle({
         context,
         skillRepository,
         targetStore,
+        repositoryIndexStore,
+        versionControlPort,
       });
     },
     async getSkillDetail({ input }) {
@@ -226,6 +278,8 @@ function createUseCaseBundle({
         context,
         analyzer,
         skillRepository,
+        hashPort,
+        analysisStore,
       });
     },
     async updateAppliedCopyFromSource({ input }) {
@@ -285,6 +339,14 @@ function createUseCaseBundle({
       return deleteBackup({
         input,
         skillRepository,
+      });
+    },
+    async restoreBackupToTarget({ context, input }) {
+      return restoreBackupToTarget({
+        context,
+        input,
+        targetStore,
+        auditStore,
       });
     },
   };

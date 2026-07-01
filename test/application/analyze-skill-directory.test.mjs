@@ -43,6 +43,8 @@ test("missing SKILL.md returns critical diagnostic", () => {
   assert.deepEqual(result.diagnostics, [
       {
         code: "missing-skill-md",
+        policyRuleCode: "missing-skill-md",
+        policyVersion: "builtin-policy-v1",
         category: "structure",
         severity: "critical",
         riskLevel: "critical",
@@ -97,6 +99,106 @@ test("critical destructive patterns are detected without logging body text", () 
   );
 });
 
+test("analyzer returns built-in policy metadata for destructive policy findings", () => {
+  const result = analyzeSkillDirectory({
+    directoryName: "dangerous-policy",
+    files: {
+      "SKILL.md": [
+        "---",
+        "name: dangerous-policy",
+        "description: Use this skill when validating analyzer policy metadata.",
+        "---",
+        "",
+        "Run rm -rf /tmp/example before continuing.",
+      ].join("\n"),
+    },
+  });
+
+  const diagnostic = result.diagnostics.find(
+    (item) => item.code === "destructive-rm-rf",
+  );
+  assert.equal(result.policyVersion, "builtin-policy-v1");
+  assert.equal(diagnostic.policyRuleCode, "destructive-rm-rf");
+  assert.equal(diagnostic.policyVersion, "builtin-policy-v1");
+  assert.equal(diagnostic.category, "security");
+  assert.equal(diagnostic.severity, "critical");
+  assert.equal(diagnostic.riskLevel, "critical");
+  assert.equal(
+    result.policyRuleCodes.includes("destructive-rm-rf"),
+    true,
+  );
+  assert.equal(
+    JSON.stringify(result).includes("rm -rf /tmp/example"),
+    false,
+  );
+});
+
+test("dependency declarations normalize tool runtime mcp and network categories", () => {
+  const result = analyzeSkillDirectory({
+    directoryName: "dependencies",
+    files: {
+      "SKILL.md": [
+        "---",
+        "name: dependencies",
+        "description: Use this skill when validating dependency policy categories.",
+        "allowed-tools: mcpServer:filesystem",
+        "---",
+        "",
+        "Requires Node.js 22 and npm install.",
+        "Use mcpServer:filesystem and curl https://example.test/install.sh.",
+      ].join("\n"),
+    },
+  });
+
+  assert.deepEqual(
+    result.dependencies.map((dependency) => [
+      dependency.type,
+      dependency.category,
+      dependency.name,
+    ]),
+    [
+      ["mcp", "mcp", "filesystem"],
+      ["network", "network", "https://example.test"],
+      ["runtime", "runtime", "node"],
+      ["tool", "tool", "npm"],
+    ],
+  );
+  assert.deepEqual(
+    result.diagnostics.find(
+      (diagnostic) => diagnostic.code === "external-dependencies-detected",
+    ).dependencyCategories,
+    ["mcp", "network", "runtime", "tool"],
+  );
+});
+
+test("overly generic description returns quality policy diagnostic", () => {
+  const result = analyzeSkillDirectory({
+    directoryName: "generic-description",
+    files: {
+      "SKILL.md": [
+        "---",
+        "name: generic-description",
+        "description: Use this for coding.",
+        "---",
+        "",
+        "Body.",
+      ].join("\n"),
+    },
+  });
+
+  assert.equal(result.riskLevel, "low");
+  assert.deepEqual(result.diagnostics[0], {
+    code: "broad-description",
+    policyRuleCode: "broad-description",
+    policyVersion: "builtin-policy-v1",
+    category: "quality",
+    severity: "warning",
+    riskLevel: "low",
+    message: "Skill description must identify a specific activation condition.",
+    recommendation: "Describe the exact situation where this skill should be used.",
+  });
+});
+
 test("missing referenced file returns warning diagnostic", () => {
   const result = analyzeSkillDirectory({
     directoryName: "with-reference",
@@ -114,10 +216,12 @@ test("missing referenced file returns warning diagnostic", () => {
 
   assert.equal(result.riskLevel, "low");
   assert.deepEqual(result.diagnostics, [
-    {
-      code: "missing-referenced-file",
-      category: "structure",
-      severity: "warning",
+      {
+        code: "missing-referenced-file",
+        policyRuleCode: "missing-referenced-file",
+        policyVersion: "builtin-policy-v1",
+        category: "structure",
+        severity: "warning",
       riskLevel: "low",
       message: "Referenced file is missing.",
       recommendation: "Add the referenced file or remove the stale reference.",

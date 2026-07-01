@@ -177,9 +177,21 @@ test("refreshSponzeyTreeDataProviders updates all provider caches", async () => 
   });
 
   const diagnostics = await providers["sponzeySkills.diagnostics"].getChildren();
+  const categories =
+    await providers["sponzeySkills.diagnostics"].getChildren(diagnostics[0]);
+  const diagnosticItems =
+    await providers["sponzeySkills.diagnostics"].getChildren(categories[0]);
 
   assert.deepEqual(
     diagnostics.map((item) => item.label),
+    ["warning"],
+  );
+  assert.deepEqual(
+    categories.map((item) => item.label),
+    ["uncategorized"],
+  );
+  assert.deepEqual(
+    diagnosticItems.map((item) => item.label),
     ["updated-diagnostic"],
   );
 });

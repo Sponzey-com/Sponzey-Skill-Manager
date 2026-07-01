@@ -605,7 +605,12 @@ async function collectSkillDetailInput({
 }) {
   const nextInput = { ...input };
 
-  if (hasSource(nextInput.source) || hasAppliedSkill(nextInput.appliedSkill)) {
+  if (
+    hasSource(nextInput.source) ||
+    hasAppliedSkill(nextInput.appliedSkill) ||
+    hasBackup(nextInput.backup) ||
+    hasDiagnostic(nextInput.diagnostic)
+  ) {
     return {
       ok: true,
       input: nextInput,
@@ -1196,7 +1201,11 @@ async function collectApplySkillInput({
     const targetChoice = await chooseRequiredQuickPick({
       commandId,
       window,
-      items: targetChoices({ readModel: readModel.value, targetScope }),
+      items: targetChoices({
+        readModel: readModel.value,
+        targetScope,
+        source: nextInput.source,
+      }),
       placeHolder:
         targetScope === "project"
           ? "Select project target"
@@ -1313,10 +1322,10 @@ async function collectTransferAppliedSkillInput({
     const cleanupChoice = await showQuickPick({
       window,
       items: [
-        { label: "Confirm cleanup", value: true },
-        { label: "Do not move", value: false },
+        { label: "Remove target entry after copy", value: true },
+        { label: "Keep target entry", value: false },
       ],
-      placeHolder: "Confirm target cleanup",
+      placeHolder: "Remove original target entry after copy?",
     });
 
     if (cleanupChoice === undefined) {
@@ -1357,13 +1366,14 @@ async function collectAppliedSkillSelectionInput({
     readModel: readModel.value,
     target: nextInput.target,
   });
+  const promptText = appliedSkillSelectionPromptText(commandId);
 
   if (!hasTarget(nextInput.target)) {
     const targetChoice = await chooseRequiredQuickPick({
       commandId,
       window,
       items: removableTargetChoices(readModel.value),
-      placeHolder: "Select target",
+      placeHolder: promptText.targetPlaceHolder,
       unavailableMessage: "No skill targets are available.",
     });
 
@@ -1380,7 +1390,7 @@ async function collectAppliedSkillSelectionInput({
       commandId,
       window,
       items: appliedSkillChoices(selectedGroup),
-      placeHolder: "Select applied skill",
+      placeHolder: promptText.appliedSkillPlaceHolder,
       unavailableMessage: "No applied skills are available for this target.",
     });
 
@@ -1394,6 +1404,41 @@ async function collectAppliedSkillSelectionInput({
   return {
     ok: true,
     input: nextInput,
+  };
+}
+
+function appliedSkillSelectionPromptText(commandId) {
+  if (commandId === "sponzeySkills.removeAppliedSkill") {
+    return {
+      targetPlaceHolder: "Select target to remove skill from",
+      appliedSkillPlaceHolder: "Select applied target skill to remove",
+    };
+  }
+
+  if (commandId === "sponzeySkills.copyAppliedSkillToMainRepository") {
+    return {
+      targetPlaceHolder: "Select target to copy skill from",
+      appliedSkillPlaceHolder: "Select applied target skill to copy",
+    };
+  }
+
+  if (commandId === "sponzeySkills.backupAppliedSkillToMainRepository") {
+    return {
+      targetPlaceHolder: "Select target to back up skill from",
+      appliedSkillPlaceHolder: "Select applied target skill to back up",
+    };
+  }
+
+  if (commandId === "sponzeySkills.moveAppliedSkillToMainRepository") {
+    return {
+      targetPlaceHolder: "Select target to move skill from",
+      appliedSkillPlaceHolder: "Select applied target skill to move",
+    };
+  }
+
+  return {
+    targetPlaceHolder: "Select target",
+    appliedSkillPlaceHolder: "Select applied skill",
   };
 }
 
@@ -1627,6 +1672,25 @@ function hasAppliedSkill(appliedSkill) {
   );
 }
 
+function hasBackup(backup) {
+  return (
+    backup &&
+    typeof backup === "object" &&
+    hasText(backup.skillName) &&
+    hasText(backup.snapshotId) &&
+    hasText(backup.backupPath)
+  );
+}
+
+function hasDiagnostic(diagnostic) {
+  return (
+    diagnostic &&
+    typeof diagnostic === "object" &&
+    hasText(diagnostic.code) &&
+    hasText(diagnostic.severity)
+  );
+}
+
 function sourceAppliedTargetCount(source) {
   if (typeof source?.appliedTargetCount === "number") {
     return source.appliedTargetCount;
@@ -1700,7 +1764,7 @@ function sourceChoices(readModel) {
   }));
 }
 
-function targetChoices({ readModel, targetScope }) {
+function targetChoices({ readModel, targetScope, source = null }) {
   const groups =
     targetScope === "project"
       ? readModel?.projectSkills ?? []
@@ -1708,7 +1772,7 @@ function targetChoices({ readModel, targetScope }) {
 
   return groups.map((group) => ({
     label: targetChoiceLabel(group),
-    description: targetChoiceDescription(group),
+    description: targetChoiceDescriptionWithCompatibility({ group, source }),
     value: {
       id: group.targetId,
       clientType: group.clientType,
@@ -1806,7 +1870,27 @@ function skillDetailChoices(readModel) {
     })),
   );
 
-  return [...sourceItems, ...appliedItems];
+  const backupItems = (readModel?.backups ?? []).map((backup) => ({
+    label: `Backup ${backup.skillName}:${backup.snapshotId}`,
+    description: "Backup Snapshot",
+    detail: backup.backupPath,
+    value: {
+      backup,
+    },
+  }));
+
+  const diagnosticItems = (readModel?.diagnostics ?? [])
+    .filter(hasDiagnostic)
+    .map((diagnostic) => ({
+      label: diagnostic.code,
+      description: diagnostic.severity,
+      detail: diagnostic.message,
+      value: {
+        diagnostic,
+      },
+    }));
+
+  return [...sourceItems, ...appliedItems, ...backupItems, ...diagnosticItems];
 }
 
 function targetChoiceLabel(group) {
@@ -1823,6 +1907,97 @@ function targetChoiceDescription(group) {
   }
 
   return group?.targetPath;
+}
+
+function targetChoiceDescriptionWithCompatibility({ group, source }) {
+  return appendDescriptionSuffix(
+    targetChoiceDescription(group),
+    compatibilityLabelForTarget({ source, clientType: group?.clientType }),
+  );
+}
+
+function compatibilityLabelForTarget({ source, clientType }) {
+  const normalizedClientType = String(clientType ?? "").trim().toLowerCase();
+
+  if (!hasText(normalizedClientType) || normalizedClientType === "custom") {
+    return "compatibility unknown";
+  }
+
+  const explicitCompatibility = compatibilityValueForClient({
+    compatibility: source?.compatibility,
+    clientType: normalizedClientType,
+  });
+  if (explicitCompatibility) {
+    return explicitCompatibility;
+  }
+
+  if (
+    normalizedClientType !== "codex" &&
+    hasDiagnosticCode(source, "codex-only-compatibility")
+  ) {
+    return "compatibility warning";
+  }
+
+  if (
+    normalizedClientType !== "claude" &&
+    hasDiagnosticCode(source, "claude-only-compatibility")
+  ) {
+    return "compatibility warning";
+  }
+
+  if (
+    source?.compatibility &&
+    typeof source.compatibility === "object" &&
+    Object.keys(source.compatibility).length > 0
+  ) {
+    return "compatibility unknown";
+  }
+
+  return null;
+}
+
+function compatibilityValueForClient({ compatibility, clientType }) {
+  if (!compatibility || typeof compatibility !== "object") {
+    return null;
+  }
+
+  if (!Object.hasOwn(compatibility, clientType)) {
+    return null;
+  }
+
+  const value = compatibility[clientType];
+  if (value === true || value === "compatible") {
+    return "compatible";
+  }
+
+  if (
+    value === false ||
+    value === "incompatible" ||
+    value === "unsupported" ||
+    value === "warning"
+  ) {
+    return "compatibility warning";
+  }
+
+  return "compatibility unknown";
+}
+
+function hasDiagnosticCode(source, code) {
+  return (source?.diagnostics ?? []).some(
+    (diagnostic) => diagnostic?.code === code,
+  );
+}
+
+function appendDescriptionSuffix(description, suffix) {
+  if (!hasText(suffix)) {
+    return description;
+  }
+
+  if (!hasText(description)) {
+    return suffix;
+  }
+
+  return `${description} · ${suffix}`;
 }
 
 function sourceById({ readModel, sourceId, name }) {

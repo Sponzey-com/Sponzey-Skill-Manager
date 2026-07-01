@@ -330,6 +330,118 @@ test("removeTargetEntry removes target directory without deleting source directo
   assert.equal(await pathExists(path.join(sourcePath, "SKILL.md")), true);
 });
 
+test("restoreBackupToTarget copies backup to empty target and writes metadata", async () => {
+  const rootPath = await createTempPath("ssm-target-restore-empty-");
+  const backupPath = path.join(rootPath, "repo", "backups", "alpha", "snap-1");
+  const targetRootPath = path.join(rootPath, "target");
+  await createSourceSkill(backupPath, {
+    "references/info.md": "backup reference",
+  });
+  const store = new FileSystemTargetStore();
+
+  const result = await store.restoreBackupToTarget({
+    backupPath,
+    targetRootPath,
+    skillName: "alpha",
+    overwrite: false,
+    metadata: {
+      sourceSkillId: "alpha",
+      restoredFromBackup: true,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.targetPath, normalizeExpectedPath(path.join(targetRootPath, "alpha")));
+  assert.equal(
+    await readFile(path.join(targetRootPath, "alpha", "SKILL.md"), "utf8"),
+    "source",
+  );
+  assert.equal(
+    await readFile(
+      path.join(targetRootPath, "alpha", "references", "info.md"),
+      "utf8",
+    ),
+    "backup reference",
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await readFile(
+        path.join(targetRootPath, "alpha", ".sponzey-applied.json"),
+        "utf8",
+      ),
+    ),
+    {
+      sourceSkillId: "alpha",
+      restoredFromBackup: true,
+    },
+  );
+});
+
+test("restoreBackupToTarget rejects existing target without overwrite and preserves files", async () => {
+  const rootPath = await createTempPath("ssm-target-restore-reject-");
+  const backupPath = path.join(rootPath, "repo", "backups", "alpha", "snap-1");
+  const targetRootPath = path.join(rootPath, "target");
+  const targetPath = path.join(targetRootPath, "alpha");
+  await createSourceSkill(backupPath, {});
+  await createTargetSkill(targetPath, {
+    "local.md": "do not replace",
+  });
+  const store = new FileSystemTargetStore();
+
+  const result = await store.restoreBackupToTarget({
+    backupPath,
+    targetRootPath,
+    skillName: "alpha",
+    overwrite: false,
+    metadata: {},
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    error: {
+      code: "target-overwrite-rejected",
+      severity: "error",
+      message: "Target destination already exists.",
+    },
+  });
+  assert.equal(await readFile(path.join(targetPath, "SKILL.md"), "utf8"), "target");
+  assert.equal(await readFile(path.join(targetPath, "local.md"), "utf8"), "do not replace");
+});
+
+test("restoreBackupToTarget overwrites target when confirmed without mutating backup", async () => {
+  const rootPath = await createTempPath("ssm-target-restore-overwrite-");
+  const backupPath = path.join(rootPath, "repo", "backups", "alpha", "snap-1");
+  const targetRootPath = path.join(rootPath, "target");
+  const targetPath = path.join(targetRootPath, "alpha");
+  await createSourceSkill(backupPath, {
+    "references/info.md": "backup reference",
+  });
+  await createTargetSkill(targetPath, {
+    "local.md": "remove me",
+  });
+  const store = new FileSystemTargetStore();
+
+  const result = await store.restoreBackupToTarget({
+    backupPath,
+    targetRootPath,
+    skillName: "alpha",
+    overwrite: true,
+    metadata: {
+      sourceSkillId: "alpha",
+      restoredFromBackup: true,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(await readFile(path.join(targetPath, "SKILL.md"), "utf8"), "source");
+  assert.equal(await pathExists(path.join(targetPath, "local.md")), false);
+  assert.equal(await readFile(path.join(backupPath, "SKILL.md"), "utf8"), "source");
+  assert.equal(
+    await readFile(path.join(backupPath, "references", "info.md"), "utf8"),
+    "backup reference",
+  );
+});
+
 async function createTargetSkill(skillPath, extraFiles) {
   await mkdir(skillPath, { recursive: true });
   await writeFile(path.join(skillPath, "SKILL.md"), "target");

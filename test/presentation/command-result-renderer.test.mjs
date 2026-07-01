@@ -24,6 +24,78 @@ test("renderCommandResult shows information message for successful result", asyn
   });
 });
 
+test("renderCommandResult shows detail-specific next action messages without paths", async () => {
+  const calls = [];
+
+  await renderCommandResult({
+    result: {
+      ok: true,
+      detail: {
+        type: "source",
+        name: "alpha",
+        sourcePath: "/secret/main/skills/alpha",
+      },
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      detail: {
+        type: "applied",
+        name: "alpha",
+        targetPath: "/secret/target/alpha",
+      },
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      detail: {
+        type: "backup",
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/secret/backups/alpha/snapshot-001",
+      },
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      detail: {
+        type: "diagnostic",
+        code: "external-dependencies-detected",
+        severity: "warning",
+        message: "Skill declares external dependencies.",
+        recommendation: "Review dependency installation steps before applying.",
+      },
+    },
+    window: fakeWindow(calls),
+  });
+
+  assert.deepEqual(calls, [
+    [
+      "info",
+      "Sponzey Skills: skill.detail.ready - alpha source detail. Use Open SKILL.md to inspect files.",
+    ],
+    [
+      "info",
+      "Sponzey Skills: skill.detail.ready - alpha applied detail. Use Open Target Folder to inspect installed files.",
+    ],
+    [
+      "info",
+      "Sponzey Skills: skill.detail.ready - alpha backup snapshot-001. Use Promote Backup or Delete Backup from context menu.",
+    ],
+    [
+      "warning",
+      "Sponzey Skills: skill.detail.ready - external-dependencies-detected diagnostic. Review recommendation before applying.",
+    ],
+  ]);
+  assert.equal(calls.some(([, message]) => message.includes("/secret")), false);
+});
+
 test("renderCommandResult explains Codex refresh after global skill apply", async () => {
   const calls = [];
   const renderResult = await renderCommandResult({

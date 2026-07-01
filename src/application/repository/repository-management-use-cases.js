@@ -481,6 +481,116 @@ export async function removeProjectRepository({ input, settingsWriter }) {
   };
 }
 
+export async function createRepositorySnapshot({
+  context,
+  input,
+  versionControlPort,
+}) {
+  const steps = ["ValidatingInput"];
+  const message = String(input?.message ?? "").trim();
+
+  if (!hasText(message)) {
+    return failed({
+      diagnostics: [
+        {
+          code: "repository-snapshot-message-required",
+          severity: "error",
+          category: "version-control",
+          message: "Repository snapshot requires an explicit commit message.",
+        },
+      ],
+      events: [
+        {
+          level: "ProductLog",
+          code: "repository.version.snapshot.failed",
+          reason: "repository-snapshot-message-required",
+        },
+      ],
+      steps: [...steps, "ValidationFailed"],
+    });
+  }
+
+  if (!hasText(context?.mainRepositoryPath)) {
+    return failed({
+      diagnostics: [
+        {
+          code: "invalid-main-repository-path",
+          severity: "error",
+          category: "repository",
+          message: "Main repository path is required.",
+        },
+      ],
+      events: [
+        {
+          level: "ProductLog",
+          code: "repository.version.snapshot.failed",
+          reason: "invalid-main-repository-path",
+        },
+      ],
+      steps: [...steps, "ValidationFailed"],
+    });
+  }
+
+  steps.push("CheckingVersionPort");
+  if (typeof versionControlPort?.createSnapshot !== "function") {
+    return failed({
+      diagnostics: [
+        {
+          code: "version-control-port-unavailable",
+          severity: "warning",
+          category: "version-control",
+          message: "Version control is unavailable for this Main Repository.",
+        },
+      ],
+      events: [
+        {
+          level: "ProductLog",
+          code: "repository.version.snapshot.failed",
+          reason: "version-control-port-unavailable",
+        },
+      ],
+      steps: [...steps, "VersionPortUnavailable"],
+    });
+  }
+
+  const paths = normalizeSnapshotPaths(input?.paths);
+  steps.push("CreatingSnapshot");
+  const result = await versionControlPort.createSnapshot({
+    repositoryPath: context.mainRepositoryPath,
+    message,
+    paths,
+  });
+
+  if (!result.ok) {
+    return failed({
+      diagnostics: [result.error],
+      events: [
+        {
+          level: "ProductLog",
+          code: "repository.version.snapshot.failed",
+          reason: result.error?.code,
+        },
+      ],
+      steps: [...steps, "SnapshotFailed"],
+    });
+  }
+
+  return {
+    ok: true,
+    commitHash: result.commitHash,
+    diagnostics: [],
+    events: [
+      {
+        level: "ProductLog",
+        code: "repository.version.snapshot.created",
+        includedPathCount: paths.length,
+        commitHashPresent: hasText(result.commitHash),
+      },
+    ],
+    steps: [...steps, "Completed"],
+  };
+}
+
 export async function openMainRepository({ context, repositoryOpener }) {
   const steps = ["OpeningMainRepository"];
   const path = context?.mainRepositoryPath;
@@ -555,11 +665,19 @@ export async function openMainRepository({ context, repositoryOpener }) {
   };
 }
 
-export async function showDiagnostics({ context, skillRepository, targetStore }) {
+export async function showDiagnostics({
+  context,
+  skillRepository,
+  targetStore,
+  repositoryIndexStore = null,
+  versionControlPort = null,
+}) {
   const refreshResult = await refreshSkills({
     context,
     skillRepository,
     targetStore,
+    repositoryIndexStore,
+    versionControlPort,
   });
 
   if (!refreshResult.ok) {
@@ -590,6 +708,16 @@ function failed({ diagnostics, events, steps }) {
     events,
     steps,
   };
+}
+
+function normalizeSnapshotPaths(paths) {
+  if (!Array.isArray(paths)) {
+    return [];
+  }
+
+  return paths
+    .map((path) => String(path ?? "").trim())
+    .filter((path) => path.length > 0);
 }
 
 function hasText(value) {

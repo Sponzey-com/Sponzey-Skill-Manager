@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,10 +29,26 @@ const CHECKS = Object.freeze([
     failureCode: "PackageFailed",
   },
 ]);
+const SMOKE_CHECKLIST_PATH = ".tasks/release-smoke.md";
+const REQUIRED_SMOKE_MARKERS = Object.freeze([
+  "# Phase 004 Release Smoke Checklist",
+  "## 1. Automated Verification",
+  "## 2. Extension Development Host",
+  "## 3. Repository Setup",
+  "## 4. Repository Index And Versioning",
+  "## 5. Main Repository Skill Lifecycle",
+  "## 6. Global And Project Apply",
+  "## 7. Diagnostics And Analysis",
+  "## 8. Backup Transfer And Safety",
+  "## 9. Diagnostics Remediation Workflow",
+  "## 10. Watcher Refresh And Runtime Recomposition",
+  "## 11. Documentation And Release Gate",
+]);
 
 export async function runReleaseGate({
   runCommand = runCommandWithSpawn,
   checkFile = access,
+  readTextFile = readFile,
 } = {}) {
   for (const check of CHECKS) {
     const result = await runCommand(check);
@@ -46,7 +62,7 @@ export async function runReleaseGate({
   }
 
   try {
-    await checkFile(".tasks/release-smoke.md");
+    await checkFile(SMOKE_CHECKLIST_PATH);
   } catch {
     return {
       ok: false,
@@ -55,9 +71,28 @@ export async function runReleaseGate({
     };
   }
 
+  let smokeChecklist;
+  try {
+    smokeChecklist = await readTextFile(SMOKE_CHECKLIST_PATH, "utf8");
+  } catch {
+    return {
+      ok: false,
+      failureCode: "DocsFailed",
+      failedCheck: "docs",
+    };
+  }
+
+  if (!validSmokeChecklist(smokeChecklist)) {
+    return {
+      ok: false,
+      failureCode: "SmokeMissing",
+      failedCheck: "smoke",
+    };
+  }
+
   return {
     ok: true,
-    checked: [...CHECKS.map((check) => check.name), "docs"],
+    checked: [...CHECKS.map((check) => check.name), "docs", "smoke"],
   };
 }
 
@@ -84,4 +119,8 @@ function runCommandWithSpawn({ command, args }) {
     child.on("exit", (code) => resolve({ ok: code === 0, code }));
     child.on("error", () => resolve({ ok: false }));
   });
+}
+
+function validSmokeChecklist(content) {
+  return REQUIRED_SMOKE_MARKERS.every((marker) => content.includes(marker));
 }

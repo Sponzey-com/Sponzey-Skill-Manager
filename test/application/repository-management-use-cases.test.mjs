@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   addGlobalRepository,
   addProjectRepository,
+  createRepositorySnapshot,
   openMainRepository,
   removeGlobalRepository,
   setMainRepository,
@@ -389,6 +390,124 @@ test("openMainRepository opens current runtime context repository path through o
     ],
     steps: ["OpeningMainRepository", "Completed"],
   });
+});
+
+test("createRepositorySnapshot delegates explicit snapshot input to version control port", async () => {
+  const calls = [];
+  const result = await createRepositorySnapshot({
+    context: {
+      mainRepositoryPath: "/repo",
+    },
+    input: {
+      message: "Snapshot skill changes",
+      paths: ["skills/alpha", ".sponzey/index.json"],
+    },
+    versionControlPort: {
+      async createSnapshot(input) {
+        calls.push(input);
+        return {
+          ok: true,
+          commitHash: "abc123",
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    {
+      repositoryPath: "/repo",
+      message: "Snapshot skill changes",
+      paths: ["skills/alpha", ".sponzey/index.json"],
+    },
+  ]);
+  assert.deepEqual(result, {
+    ok: true,
+    commitHash: "abc123",
+    diagnostics: [],
+    events: [
+      {
+        level: "ProductLog",
+        code: "repository.version.snapshot.created",
+        includedPathCount: 2,
+        commitHashPresent: true,
+      },
+    ],
+    steps: [
+      "ValidatingInput",
+      "CheckingVersionPort",
+      "CreatingSnapshot",
+      "Completed",
+    ],
+  });
+});
+
+test("createRepositorySnapshot rejects missing message before version side effects", async () => {
+  let createSnapshotCalled = false;
+  const result = await createRepositorySnapshot({
+    context: {
+      mainRepositoryPath: "/repo",
+    },
+    input: {
+      message: "  ",
+      paths: ["skills/alpha"],
+    },
+    versionControlPort: {
+      async createSnapshot() {
+        createSnapshotCalled = true;
+      },
+    },
+  });
+
+  assert.equal(createSnapshotCalled, false);
+  assert.deepEqual(result.diagnostics, [
+    {
+      code: "repository-snapshot-message-required",
+      severity: "error",
+      category: "version-control",
+      message: "Repository snapshot requires an explicit commit message.",
+    },
+  ]);
+  assert.deepEqual(result.events, [
+    {
+      level: "ProductLog",
+      code: "repository.version.snapshot.failed",
+      reason: "repository-snapshot-message-required",
+    },
+  ]);
+  assert.deepEqual(result.steps, ["ValidatingInput", "ValidationFailed"]);
+});
+
+test("createRepositorySnapshot reports missing version port without Git side effects", async () => {
+  const result = await createRepositorySnapshot({
+    context: {
+      mainRepositoryPath: "/repo",
+    },
+    input: {
+      message: "Snapshot skill changes",
+    },
+    versionControlPort: null,
+  });
+
+  assert.deepEqual(result.diagnostics, [
+    {
+      code: "version-control-port-unavailable",
+      severity: "warning",
+      category: "version-control",
+      message: "Version control is unavailable for this Main Repository.",
+    },
+  ]);
+  assert.deepEqual(result.events, [
+    {
+      level: "ProductLog",
+      code: "repository.version.snapshot.failed",
+      reason: "version-control-port-unavailable",
+    },
+  ]);
+  assert.deepEqual(result.steps, [
+    "ValidatingInput",
+    "CheckingVersionPort",
+    "VersionPortUnavailable",
+  ]);
 });
 
 test("showDiagnostics returns refresh diagnostics without mutating configuration", async () => {

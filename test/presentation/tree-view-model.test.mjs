@@ -64,6 +64,7 @@ test("mapSkillsReadModelToTreeItems maps read model into four root sections", ()
       {
         code: "broken-symlink",
         severity: "warning",
+        category: "sync",
         message: "Target skill symlink cannot be resolved.",
         sourceId: "alpha",
       },
@@ -95,8 +96,14 @@ test("mapSkillsReadModelToTreeItems maps read model into four root sections", ()
     ".agents/skills -> /workspace/.agents/skills/external",
   );
   assert.equal(tree[3].children[0].iconId, "warning");
-  assert.equal(tree[3].children[0].label, "broken-symlink");
-  assert.equal(tree[3].children[0].description, "alpha · warning");
+  assert.equal(tree[3].children[0].label, "warning");
+  assert.equal(tree[3].children[0].children[0].label, "sync");
+  assert.equal(tree[3].children[0].children[0].description, "1 item");
+  assert.equal(tree[3].children[0].children[0].children[0].label, "broken-symlink");
+  assert.equal(
+    tree[3].children[0].children[0].children[0].description,
+    "alpha · warning",
+  );
 });
 
 test("mapSkillsReadModelToTreeItems includes command payloads and context values", () => {
@@ -157,6 +164,109 @@ test("mapSkillsReadModelToTreeItems includes command payloads and context values
   });
 });
 
+test("mapSkillsReadModelToTreeItems preserves diagnostic DTO payloads", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [],
+    globalSkills: [],
+    projectSkills: [],
+    diagnostics: [
+      {
+        code: "external-dependencies-detected",
+        severity: "warning",
+        category: "dependency",
+        riskLevel: "low",
+        message: "Skill declares external dependencies.",
+        recommendation: "Review external dependencies before applying this skill.",
+        sourceId: "alpha",
+        targetId: "global:codex",
+        dependencyCount: 2,
+      },
+    ],
+  });
+
+  const diagnosticItem = tree[3].children[0].children[0].children[0];
+
+  assert.deepEqual(diagnosticItem.diagnostic, {
+    code: "external-dependencies-detected",
+    severity: "warning",
+    category: "dependency",
+    riskLevel: "low",
+    message: "Skill declares external dependencies.",
+    recommendation: "Review external dependencies before applying this skill.",
+    sourceId: "alpha",
+    targetId: "global:codex",
+    dependencyCount: 2,
+  });
+});
+
+test("mapSkillsReadModelToTreeItems groups diagnostics and attaches source action payloads", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [
+      {
+        id: "alpha",
+        name: "alpha",
+        status: "inactive",
+        sourcePath: "/repo/skills/alpha",
+        riskLevel: "high",
+        analysisStatus: "stale",
+      },
+    ],
+    globalSkills: [],
+    projectSkills: [],
+    diagnostics: [
+      {
+        code: "policy-override-detected",
+        severity: "error",
+        category: "security",
+        riskLevel: "critical",
+        message: "Skill attempts to override policy.",
+        recommendation: "Do not apply this skill.",
+        sourceId: "alpha",
+      },
+      {
+        code: "repository-unreadable",
+        severity: "warning",
+        category: "repository",
+        message: "Repository cannot be read.",
+      },
+    ],
+  });
+
+  assert.equal(tree[0].children[0].description, "inactive · analysis stale");
+
+  const errorGroup = tree[3].children[0];
+  const warningGroup = tree[3].children[1];
+  const securityGroup = errorGroup.children[0];
+  const repositoryGroup = warningGroup.children[0];
+  const sourceDiagnosticItem = securityGroup.children[0];
+  const repositoryDiagnosticItem = repositoryGroup.children[0];
+
+  assert.equal(errorGroup.label, "error");
+  assert.equal(errorGroup.iconId, "error");
+  assert.equal(securityGroup.label, "security");
+  assert.equal(sourceDiagnosticItem.contextValue, "sponzeyDiagnosticWithSource");
+  assert.deepEqual(sourceDiagnosticItem.source, {
+    id: "alpha",
+    name: "alpha",
+    sourcePath: "/repo/skills/alpha",
+    riskLevel: "high",
+    analysisStatus: "stale",
+  });
+  assert.deepEqual(sourceDiagnosticItem.diagnostic, {
+    code: "policy-override-detected",
+    severity: "error",
+    category: "security",
+    riskLevel: "critical",
+    message: "Skill attempts to override policy.",
+    recommendation: "Do not apply this skill.",
+    sourceId: "alpha",
+  });
+  assert.equal(warningGroup.label, "warning");
+  assert.equal(repositoryGroup.label, "repository");
+  assert.equal(repositoryDiagnosticItem.contextValue, "sponzeyDiagnostic");
+  assert.equal(repositoryDiagnosticItem.source, undefined);
+});
+
 test("mapSkillsReadModelToTreeItems maps backup catalog under main repository", () => {
   const tree = mapSkillsReadModelToTreeItems({
     mainRepositorySkills: [],
@@ -166,6 +276,16 @@ test("mapSkillsReadModelToTreeItems maps backup catalog under main repository", 
         snapshotId: "snapshot-001",
         backupPath: "/repo/backups/alpha/snapshot-001",
         createdAt: "2026-06-30T00:00:00.000Z",
+        sourceHash: "backup-source-hash",
+        promotedStatus: "not-promoted",
+        metadata: {
+          type: "target-backup",
+          targetId: "global:codex",
+          targetPath: "/global/alpha",
+          clientType: "codex",
+          scope: "global",
+          sourceHash: "backup-source-hash",
+        },
       },
     ],
     globalSkills: [],
@@ -184,6 +304,16 @@ test("mapSkillsReadModelToTreeItems maps backup catalog under main repository", 
     snapshotId: "snapshot-001",
     backupPath: "/repo/backups/alpha/snapshot-001",
     createdAt: "2026-06-30T00:00:00.000Z",
+    sourceHash: "backup-source-hash",
+    promotedStatus: "not-promoted",
+    metadata: {
+      type: "target-backup",
+      targetId: "global:codex",
+      targetPath: "/global/alpha",
+      clientType: "codex",
+      scope: "global",
+      sourceHash: "backup-source-hash",
+    },
   });
 });
 
@@ -282,6 +412,24 @@ test("package contributes expected tree item context menus", async () => {
   assert.equal(
     menuCommands.some(
       (item) =>
+        item.command === "sponzeySkills.showSkillDetail" &&
+        item.when ===
+          "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
+    ),
+    true,
+  );
+  assert.equal(
+    menuCommands.some(
+      (item) =>
+        item.command === "sponzeySkills.openSkillMd" &&
+        item.when ===
+          "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
+    ),
+    true,
+  );
+  assert.equal(
+    menuCommands.some(
+      (item) =>
         item.command === "sponzeySkills.updateAppliedCopyFromSource" &&
         item.when ===
           "view == sponzeySkills.globalSkills && viewItem == sponzeyAppliedSkill",
@@ -302,6 +450,15 @@ test("package contributes expected tree item context menus", async () => {
       (item) =>
         item.command === "sponzeySkills.deleteSourceSkill" &&
         item.group === "source@3",
+    ),
+    true,
+  );
+  assert.equal(
+    menuCommands.some(
+      (item) =>
+        item.command === "sponzeySkills.showSkillDetail" &&
+        item.when ===
+          "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
     ),
     true,
   );

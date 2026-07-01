@@ -1,10 +1,20 @@
-import { calculateSyncStatus, normalizePath } from "../../domain/index.js";
+import {
+  buildRepositoryIndex,
+  calculateSyncStatus,
+  evaluateSkillNameConflictPolicy,
+  evaluateSkillShadowingPolicy,
+  normalizePath,
+} from "../../domain/index.js";
 
 export async function refreshSkills({
   context,
   skillRepository,
   targetStore,
   hashPort = null,
+  analysisStore = null,
+  repositoryIndexStore = null,
+  versionControlPort = null,
+  now = () => new Date().toISOString(),
 }) {
   const steps = ["LoadingSources"];
   const sourceResult = await skillRepository.scanSourceSkills({
@@ -21,30 +31,56 @@ export async function refreshSkills({
   const sources = [...sourceResult.sources].sort((left, right) =>
     left.name.localeCompare(right.name),
   );
+  const hashingEnabled = typeof hashPort?.hashDirectory === "function";
+  if (hashingEnabled) {
+    steps.push("HashingSources");
+  }
   const sourceHashByPath = await loadSourceHashes({ sources, hashPort });
-  const sourceByPath = new Map(
-    sources.map((source) => [normalizePath(source.sourcePath), source]),
-  );
-  const mainRepositorySkills = sources.map((source) => {
-    const skill = {
-      id: source.id,
-      name: source.name,
-      sourcePath: normalizePath(source.sourcePath),
-      status: "inactive",
-      appliedTargets: [],
-    };
-    const sourceHash = sourceHashByPath.get(normalizePath(source.sourcePath));
-    if (sourceHash) {
-      skill.sourceHash = sourceHash;
-    }
-    if (source.riskLevel) {
-      skill.riskLevel = source.riskLevel;
-    }
-    if (source.lastAnalyzedAt) {
-      skill.lastAnalyzedAt = source.lastAnalyzedAt;
-    }
-    return skill;
+  const checkedAt = now();
+  const repositoryIndexResult = await loadRepositoryIndex({
+    repositoryPath: context.mainRepositoryPath,
+    sources,
+    repositoryIndexStore,
+    sourceHashByPath,
+    indexedAt: checkedAt,
   });
+  if (repositoryIndexResult.available) {
+    steps.push("ReadingRepositoryIndex");
+  }
+  if (repositoryIndexResult.writeAttempted) {
+    steps.push("WritingRepositoryIndex");
+  }
+  const repositoryVersionResult = await loadRepositoryVersion({
+    repositoryPath: context.mainRepositoryPath,
+    versionControlPort,
+    checkedAt,
+  });
+  if (repositoryVersionResult.available) {
+    steps.push("CheckingVersionStatus");
+  }
+  const indexedSources = applyRepositoryIndexToSources({
+    sources,
+    repositoryIndexResult,
+  });
+  const analysisMetadataResult = await loadAnalysisMetadata({
+    repositoryPath: context.mainRepositoryPath,
+    sources: indexedSources,
+    analysisStore,
+    sourceHashByPath,
+  });
+  if (analysisMetadataResult.available) {
+    steps.push("LoadingAnalysisMetadata");
+  }
+  const sourceByPath = new Map(
+    indexedSources.map((source) => [normalizePath(source.sourcePath), source]),
+  );
+  const mainRepositorySkills = indexedSources.map((source) =>
+    mapSourceToMainRepositorySkill({
+      source,
+      sourceHashByPath,
+      analysisMetadataResult,
+    }),
+  );
   const mainSkillById = new Map(
     mainRepositorySkills.map((skill) => [skill.id, skill]),
   );
@@ -57,14 +93,19 @@ export async function refreshSkills({
   const targets = [...context.globalTargets, ...context.projectTargets];
   const globalSkills = [];
   const projectSkills = [];
-  const diagnostics = [...backupsResult.diagnostics];
+  const diagnostics = [
+    ...repositoryIndexResult.diagnostics,
+    ...repositoryVersionResult.diagnostics,
+    ...analysisMetadataResult.diagnostics,
+    ...backupsResult.diagnostics,
+  ];
   const events = [];
   let appliedSkillCount = 0;
 
   for (const target of targets) {
     const targetResult = await targetStore.scanAppliedSkills({
       targetPath: target.targetPath,
-      knownSourcePaths: sources.map((source) => source.sourcePath),
+      knownSourcePaths: indexedSources.map((source) => source.sourcePath),
     });
 
     if (!targetResult.ok) {
@@ -127,6 +168,24 @@ export async function refreshSkills({
     }
   }
 
+  const conflictResult = evaluateSkillNameConflictPolicy({
+    sourceSkills: mainRepositorySkills,
+    appliedSkillGroups: [...globalSkills, ...projectSkills],
+  });
+  if (conflictResult.diagnostics.length > 0) {
+    steps.push("DetectingConflicts");
+    diagnostics.push(...conflictResult.diagnostics);
+  }
+
+  if (globalSkills.length > 0 && projectSkills.length > 0) {
+    steps.push("DetectingShadowing");
+    const shadowingResult = evaluateSkillShadowingPolicy({
+      globalSkillGroups: globalSkills,
+      projectSkillGroups: projectSkills,
+    });
+    diagnostics.push(...shadowingResult.diagnostics);
+  }
+
   steps.push("MatchingSources");
   steps.push("CalculatingReadModel");
 
@@ -146,6 +205,10 @@ export async function refreshSkills({
     diagnostics,
   };
 
+  if (repositoryVersionResult.available) {
+    readModel.repositoryVersion = repositoryVersionResult.repositoryVersion;
+  }
+
   if (backupsResult.available) {
     readModel.backups = backupsResult.backups;
   }
@@ -156,6 +219,88 @@ export async function refreshSkills({
     events,
     steps: [...steps, "Completed"],
   };
+}
+
+function mapSourceToMainRepositorySkill({
+  source,
+  sourceHashByPath,
+  analysisMetadataResult,
+}) {
+  const normalizedSourcePath = normalizePath(source.sourcePath);
+  const analysis = analysisMetadataResult.analysisBySourceId.get(source.id);
+  const analysisStatus =
+    analysis?.analysisStatus ??
+    analysisMetadataResult.analysisStatusBySourceId.get(source.id);
+  const skill = createMainRepositorySkillReadModel({
+    source,
+    normalizedSourcePath,
+    sourceHash: sourceHashByPath.get(normalizedSourcePath),
+  });
+
+  applySourceScanSummary({ skill, source });
+  applyAnalysisSummary({ skill, analysis, analysisStatus });
+
+  return skill;
+}
+
+function createMainRepositorySkillReadModel({
+  source,
+  normalizedSourcePath,
+  sourceHash,
+}) {
+  const skill = {
+    id: source.id,
+    name: source.name,
+    sourcePath: normalizedSourcePath,
+    status: "inactive",
+    appliedTargets: [],
+  };
+
+  if (sourceHash) {
+    skill.sourceHash = sourceHash;
+  }
+  if (source.sourceId !== undefined) {
+    skill.sourceId = source.sourceId;
+  }
+  if (source.origin !== undefined) {
+    skill.origin = source.origin;
+  }
+  if (source.indexStatus !== undefined) {
+    skill.indexStatus = source.indexStatus;
+  }
+  if (source.lastIndexedAt !== undefined) {
+    skill.lastIndexedAt = source.lastIndexedAt;
+  }
+
+  return skill;
+}
+
+function applySourceScanSummary({ skill, source }) {
+  if (source.riskLevel) {
+    skill.riskLevel = source.riskLevel;
+  }
+  if (source.lastAnalyzedAt) {
+    skill.lastAnalyzedAt = source.lastAnalyzedAt;
+  }
+}
+
+function applyAnalysisSummary({ skill, analysis, analysisStatus }) {
+  if (analysis) {
+    skill.riskLevel = analysis.riskLevel;
+    skill.lastAnalyzedAt = analysis.lastAnalyzedAt;
+    skill.analysisStatus = analysis.analysisStatus;
+    skill.diagnostics = analysis.diagnostics;
+    skill.dependencies = analysis.dependencies;
+    skill.compatibility = analysis.compatibility;
+    if (analysis.analysisStatus === "stale") {
+      skill.lastAnalyzedSourceHash = analysis.lastAnalyzedSourceHash;
+    }
+    return;
+  }
+
+  if (analysisStatus) {
+    skill.analysisStatus = analysisStatus;
+  }
 }
 
 async function loadBackups({ repositoryPath, skillRepository }) {
@@ -184,6 +329,258 @@ async function loadBackups({ repositoryPath, skillRepository }) {
       ),
     ),
     diagnostics: result.diagnostics ?? [],
+  };
+}
+
+async function loadAnalysisMetadata({
+  repositoryPath,
+  sources,
+  analysisStore,
+  sourceHashByPath,
+}) {
+  const analysisBySourceId = new Map();
+  const analysisStatusBySourceId = new Map();
+  const diagnostics = [];
+
+  if (typeof analysisStore?.readAnalysisMetadata !== "function") {
+    return {
+      available: false,
+      analysisBySourceId,
+      analysisStatusBySourceId,
+      diagnostics,
+    };
+  }
+
+  for (const source of sources) {
+    const result = await analysisStore.readAnalysisMetadata({
+      repositoryPath,
+      skillId: source.id,
+    });
+
+    if (result.ok) {
+      const currentSourceHash = sourceHashByPath.get(
+        normalizePath(source.sourcePath),
+      );
+      const analysisStatus = analysisStatusForMetadata({
+        metadata: result.metadata,
+        currentSourceHash,
+      });
+      const sourceDiagnostics = (result.metadata.diagnostics ?? []).map(
+        (diagnostic) => diagnosticWithSource({ diagnostic, source }),
+      );
+
+      analysisBySourceId.set(source.id, {
+        riskLevel: result.metadata.riskLevel,
+        lastAnalyzedAt: result.metadata.analyzedAt,
+        lastAnalyzedSourceHash: result.metadata.sourceHash,
+        analysisStatus,
+        diagnostics: sourceDiagnostics,
+        dependencies: [...(result.metadata.dependencies ?? [])],
+        compatibility: { ...(result.metadata.compatibility ?? {}) },
+      });
+      diagnostics.push(...sourceDiagnostics);
+      continue;
+    }
+
+    analysisStatusBySourceId.set(source.id, "unknown");
+    if (result.error?.code !== "analysis-metadata-not-found") {
+      diagnostics.push(
+        diagnosticWithSource({
+          diagnostic: result.error,
+          source,
+        }),
+      );
+    }
+  }
+
+  return {
+    available: true,
+    analysisBySourceId,
+    analysisStatusBySourceId,
+    diagnostics,
+  };
+}
+
+async function loadRepositoryVersion({
+  repositoryPath,
+  versionControlPort,
+  checkedAt,
+}) {
+  if (typeof versionControlPort?.getRepositoryStatus !== "function") {
+    return {
+      available: false,
+      repositoryVersion: null,
+      diagnostics: [],
+    };
+  }
+
+  const result = await versionControlPort.getRepositoryStatus({
+    repositoryPath,
+  });
+  if (!result.ok) {
+    return {
+      available: true,
+      repositoryVersion: summarizeRepositoryVersion({
+        status: statusForVersionError(result.error),
+        entries: [],
+        checkedAt,
+      }),
+      diagnostics: [result.error],
+    };
+  }
+
+  return {
+    available: true,
+    repositoryVersion: summarizeRepositoryVersion({
+      status: result.status,
+      entries: result.entries ?? [],
+      checkedAt: result.checkedAt ?? checkedAt,
+    }),
+    diagnostics: [],
+  };
+}
+
+function summarizeRepositoryVersion({ status, entries, checkedAt }) {
+  return {
+    status: status ?? (entries.length > 0 ? "dirty" : "clean"),
+    changedFileCount: entries.length,
+    sourceChangeCount: countVersionEntriesWithPrefix(entries, "skills/"),
+    backupChangeCount: countVersionEntriesWithPrefix(entries, "backups/"),
+    metadataChangeCount: countMetadataVersionEntries(entries),
+    lastCheckedAt: checkedAt,
+  };
+}
+
+function statusForVersionError(error) {
+  return error?.code === "not-git-repository"
+    ? "not-git-repository"
+    : "unavailable";
+}
+
+function countVersionEntriesWithPrefix(entries, prefix) {
+  return entries.filter((entry) => versionEntryPath(entry).startsWith(prefix))
+    .length;
+}
+
+function countMetadataVersionEntries(entries) {
+  return entries.filter((entry) => {
+    const entryPath = versionEntryPath(entry);
+    return entryPath === ".sponzey" || entryPath.startsWith(".sponzey/");
+  }).length;
+}
+
+function versionEntryPath(entry) {
+  return normalizePath(entry?.path ?? "").replace(/^\/+/, "");
+}
+
+async function loadRepositoryIndex({
+  repositoryPath,
+  sources,
+  repositoryIndexStore,
+  sourceHashByPath,
+  indexedAt,
+}) {
+  const entryByPath = new Map();
+  const diagnostics = [];
+
+  if (
+    typeof repositoryIndexStore?.readRepositoryIndex !== "function" ||
+    typeof repositoryIndexStore?.writeRepositoryIndex !== "function"
+  ) {
+    return {
+      available: false,
+      writeAttempted: false,
+      entryByPath,
+      diagnostics,
+    };
+  }
+
+  const readResult = await repositoryIndexStore.readRepositoryIndex({
+    repositoryPath,
+  });
+  if (!readResult.ok) {
+    diagnostics.push(readResult.error);
+    for (const source of sources) {
+      entryByPath.set(normalizePath(source.sourcePath), {
+        sourceId: source.id,
+        indexStatus: "unknown",
+      });
+    }
+    return {
+      available: true,
+      writeAttempted: false,
+      entryByPath,
+      diagnostics,
+    };
+  }
+
+  const repositoryIndex = buildRepositoryIndex({
+    sources,
+    existingIndex: readResult.index,
+    sourceHashByPath,
+    indexedAt,
+  });
+
+  for (const entry of repositoryIndex.entries) {
+    entryByPath.set(normalizePath(entry.sourcePath), entry);
+  }
+
+  const writeResult = await repositoryIndexStore.writeRepositoryIndex({
+    repositoryPath,
+    index: repositoryIndex.index,
+  });
+  if (!writeResult.ok) {
+    diagnostics.push(writeResult.error);
+  }
+
+  return {
+    available: true,
+    writeAttempted: true,
+    entryByPath,
+    diagnostics,
+  };
+}
+
+function applyRepositoryIndexToSources({ sources, repositoryIndexResult }) {
+  if (!repositoryIndexResult.available) {
+    return sources;
+  }
+
+  return sources.map((source) => {
+    const entry = repositoryIndexResult.entryByPath.get(
+      normalizePath(source.sourcePath),
+    );
+    if (!entry) {
+      return {
+        ...source,
+        indexStatus: "unknown",
+      };
+    }
+
+    return {
+      ...source,
+      id: entry.sourceId ?? source.id,
+      sourceId: entry.sourceId ?? source.id,
+      origin: entry.origin,
+      indexStatus: entry.indexStatus ?? "indexed",
+      lastIndexedAt: entry.indexedAt,
+    };
+  });
+}
+
+function analysisStatusForMetadata({ metadata, currentSourceHash }) {
+  if (!currentSourceHash || !metadata?.sourceHash) {
+    return "unknown";
+  }
+
+  return currentSourceHash === metadata.sourceHash ? "current" : "stale";
+}
+
+function diagnosticWithSource({ diagnostic, source }) {
+  return {
+    ...diagnostic,
+    sourceId: diagnostic.sourceId ?? source.id,
+    skillName: diagnostic.skillName ?? source.name,
   };
 }
 

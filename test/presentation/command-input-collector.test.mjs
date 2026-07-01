@@ -553,6 +553,153 @@ test("collectCommandInput prompts missing global apply source, target, and mode"
   });
 });
 
+test("collectCommandInput annotates apply targets with explicit compatibility", async () => {
+  const calls = [];
+  const sourceWithCompatibility = {
+    id: "alpha",
+    name: "alpha",
+    sourcePath: "/repo/skills/alpha",
+    compatibility: {
+      codex: "compatible",
+      claude: "unknown",
+    },
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.applySkillToGlobalTarget",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "alpha",
+          value: sourceWithCompatibility,
+        },
+        {
+          label: "global:codex",
+          value: globalTarget(),
+        },
+        {
+          label: "copy",
+          value: "copy",
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...applyReadModel(),
+        mainRepositorySkills: [sourceWithCompatibility],
+        globalSkills: [
+          {
+            targetId: "global:codex",
+            clientType: "codex",
+            scope: "global",
+            targetPath: "/global-codex",
+            skills: [],
+          },
+          {
+            targetId: "global:claude",
+            clientType: "claude",
+            scope: "global",
+            targetPath: "/global-claude",
+            skills: [],
+          },
+        ],
+      };
+    },
+  });
+
+  assert.deepEqual(
+    calls[1].items.map((item) => [item.label, item.description]),
+    [
+      ["global:codex", "/global-codex · compatible"],
+      ["global:claude", "/global-claude · compatibility unknown"],
+    ],
+  );
+  assert.equal(result.ok, true);
+});
+
+test("collectCommandInput annotates apply targets from compatibility diagnostics and custom clients", async () => {
+  const calls = [];
+  const codexOnlySource = {
+    id: "alpha",
+    name: "alpha",
+    sourcePath: "/repo/skills/alpha",
+    diagnostics: [
+      {
+        code: "codex-only-compatibility",
+        severity: "warning",
+        category: "compatibility",
+        message: "Skill appears to require Codex-specific behavior.",
+      },
+    ],
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.applySkillToGlobalTarget",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "alpha",
+          value: codexOnlySource,
+        },
+        {
+          label: "global:claude",
+          value: {
+            id: "global:claude",
+            clientType: "claude",
+            scope: "global",
+            targetPath: "/global-claude",
+          },
+        },
+        {
+          label: "symlink",
+          value: "symlink",
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...applyReadModel(),
+        mainRepositorySkills: [codexOnlySource],
+        globalSkills: [
+          {
+            targetId: "global:codex",
+            clientType: "codex",
+            scope: "global",
+            targetPath: "/global-codex",
+            skills: [],
+          },
+          {
+            targetId: "global:claude",
+            clientType: "claude",
+            scope: "global",
+            targetPath: "/global-claude",
+            skills: [],
+          },
+          {
+            targetId: "global:custom",
+            clientType: "custom",
+            scope: "global",
+            targetPath: "/global-custom",
+            skills: [],
+          },
+        ],
+      };
+    },
+  });
+
+  assert.deepEqual(
+    calls[1].items.map((item) => [item.label, item.description]),
+    [
+      ["global:codex", "/global-codex"],
+      ["global:claude", "/global-claude · compatibility warning"],
+      ["global:custom", "/global-custom · compatibility unknown"],
+    ],
+  );
+  assert.equal(result.ok, true);
+});
+
 test("collectCommandInput preserves existing apply DTO without loading read model", async () => {
   const calls = [];
   let loadCalled = false;
@@ -661,7 +808,10 @@ test("collectCommandInput prompts missing remove target and applied skill", asyn
 
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder),
-    ["Select target", "Select applied skill"],
+    [
+      "Select target to remove skill from",
+      "Select applied target skill to remove",
+    ],
   );
   assert.deepEqual(result, {
     ok: true,
@@ -784,7 +934,11 @@ test("collectCommandInput prompts missing copy transfer target, applied skill, a
   );
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder ?? call.options.prompt),
-    ["Select target", "Select applied skill", "Source skill name"],
+    [
+      "Select target to copy skill from",
+      "Select applied target skill to copy",
+      "Source skill name",
+    ],
   );
   assert.deepEqual(result, {
     ok: true,
@@ -829,7 +983,11 @@ test("collectCommandInput prompts missing backup transfer target, applied skill,
   );
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder ?? call.options.prompt),
-    ["Select target", "Select applied skill", "Backup snapshot ID"],
+    [
+      "Select target to back up skill from",
+      "Select applied target skill to back up",
+      "Backup snapshot ID",
+    ],
   );
   assert.deepEqual(result, {
     ok: true,
@@ -861,7 +1019,7 @@ test("collectCommandInput prompts missing move transfer target, applied skill, s
           value: appliedAlphaSkill(),
         },
         {
-          label: "Confirm cleanup",
+          label: "Remove target entry after copy",
           value: true,
         },
       ],
@@ -879,12 +1037,16 @@ test("collectCommandInput prompts missing move transfer target, applied skill, s
   assert.deepEqual(
     calls.map((call) => call.options.placeHolder ?? call.options.prompt),
     [
-      "Select target",
-      "Select applied skill",
+      "Select target to move skill from",
+      "Select applied target skill to move",
       "Source skill name",
-      "Confirm target cleanup",
+      "Remove original target entry after copy?",
     ],
   );
+  assert.deepEqual(calls[3].items, [
+    { label: "Remove target entry after copy", value: true },
+    { label: "Keep target entry", value: false },
+  ]);
   assert.deepEqual(result, {
     ok: true,
     input: {
@@ -1111,6 +1273,161 @@ test("collectCommandInput prompts detail target for source or applied skill", as
         sourcePath: "/repo/skills/alpha",
       },
     },
+  });
+});
+
+test("collectCommandInput preserves backup detail input without prompting", async () => {
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.showSkillDetail",
+    input: {
+      backup: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/repo/backups/alpha/snapshot-001",
+      },
+    },
+    window: fakeQuickPickWindow({
+      calls: [],
+      responses: [],
+    }),
+    async loadReadModel() {
+      throw new Error("backup payload should not load read model");
+    },
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      backup: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/repo/backups/alpha/snapshot-001",
+      },
+    },
+  });
+});
+
+test("collectCommandInput includes backups in detail target choices", async () => {
+  const calls = [];
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.showSkillDetail",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "Backup alpha:snapshot-001",
+          value: {
+            backup: {
+              skillName: "alpha",
+              snapshotId: "snapshot-001",
+              backupPath: "/repo/backups/alpha/snapshot-001",
+            },
+          },
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...removeReadModel(),
+        backups: [
+          {
+            skillName: "alpha",
+            snapshotId: "snapshot-001",
+            backupPath: "/repo/backups/alpha/snapshot-001",
+          },
+        ],
+      };
+    },
+  });
+
+  assert.equal(calls[0].options.placeHolder, "Select skill to inspect");
+  assert.equal(
+    calls[0].items.some((item) => item.label === "Backup alpha:snapshot-001"),
+    true,
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      backup: {
+        skillName: "alpha",
+        snapshotId: "snapshot-001",
+        backupPath: "/repo/backups/alpha/snapshot-001",
+      },
+    },
+  });
+});
+
+test("collectCommandInput preserves diagnostic detail input without prompting", async () => {
+  const diagnostic = {
+    code: "external-dependencies-detected",
+    severity: "warning",
+    category: "dependency",
+    message: "Skill declares external dependencies.",
+    recommendation: "Review dependency installation steps before applying.",
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.showSkillDetail",
+    input: { diagnostic },
+    window: fakeQuickPickWindow({
+      calls: [],
+      responses: [],
+    }),
+    async loadReadModel() {
+      throw new Error("diagnostic payload should not load read model");
+    },
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    input: { diagnostic },
+  });
+});
+
+test("collectCommandInput includes diagnostics in detail target choices", async () => {
+  const calls = [];
+  const diagnostic = {
+    code: "external-dependencies-detected",
+    severity: "warning",
+    category: "dependency",
+    message: "Skill declares external dependencies.",
+    recommendation: "Review dependency installation steps before applying.",
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.showSkillDetail",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "external-dependencies-detected",
+          value: { diagnostic },
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...removeReadModel(),
+        diagnostics: [diagnostic],
+      };
+    },
+  });
+
+  assert.equal(calls[0].options.placeHolder, "Select skill to inspect");
+  assert.deepEqual(
+    calls[0].items.find(
+      (item) => item.label === "external-dependencies-detected",
+    ),
+    {
+      label: "external-dependencies-detected",
+      description: "warning",
+      detail: "Skill declares external dependencies.",
+      value: { diagnostic },
+    },
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    input: { diagnostic },
   });
 });
 

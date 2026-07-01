@@ -16,6 +16,7 @@ import path from "node:path";
 import { normalizePath } from "../../domain/index.js";
 
 const APPLIED_METADATA_FILE = ".sponzey-applied.json";
+const BACKUP_METADATA_FILE = ".sponzey-backup.json";
 
 export class FileSystemTargetStore {
   async linkSkillToTarget({ sourcePath, targetRootPath, skillName }) {
@@ -91,6 +92,61 @@ export class FileSystemTargetStore {
         metadataPath: normalizePath(metadataPath),
       };
     }, "copy-skill-to-target");
+  }
+
+  async restoreBackupToTarget({
+    backupPath,
+    targetRootPath,
+    skillName,
+    overwrite,
+    metadata,
+  }) {
+    const destinationResult = resolveTargetDestination({
+      targetRootPath,
+      skillName,
+    });
+
+    if (!destinationResult.ok) {
+      return destinationResult;
+    }
+
+    const targetPath = destinationResult.targetPath;
+    const targetExists = await canAccess(targetPath);
+    if (targetExists && overwrite !== true) {
+      return {
+        ok: false,
+        error: {
+          code: "target-overwrite-rejected",
+          severity: "error",
+          message: "Target destination already exists.",
+        },
+      };
+    }
+
+    return withFileSystemResult(async () => {
+      await mkdir(targetRootPath, { recursive: true });
+      if (targetExists) {
+        await rm(targetPath, { recursive: true, force: false });
+      }
+
+      await cp(backupPath, targetPath, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
+      await rm(path.join(targetPath, BACKUP_METADATA_FILE), {
+        force: true,
+      });
+
+      const metadataPath = path.join(targetPath, APPLIED_METADATA_FILE);
+      await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`);
+
+      return {
+        ok: true,
+        targetPath: normalizePath(targetPath),
+        metadataPath: normalizePath(metadataPath),
+      };
+    }, "restore-backup-to-target");
   }
 
   async removeTargetEntry({ targetPath }) {

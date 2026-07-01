@@ -147,6 +147,79 @@ test("activate wraps registered command handlers with result rendering when wind
   ]);
 });
 
+test("activate writes confirmation-required command audit records as blocked", async () => {
+  const registered = [];
+  const auditRecords = [];
+  const context = { subscriptions: [] };
+  await activate(context, {
+    vscodeApi: {
+      commands: {
+        registerCommand(commandId, handler) {
+          registered.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      auditStore: {
+        async appendRecord({ repositoryPath, record }) {
+          assert.equal(repositoryPath, "/repo");
+          auditRecords.push(record);
+          return { ok: true };
+        },
+      },
+      skillRepository: {
+        async deleteSourceSkill() {
+          throw new Error("delete source must not run without impact confirmation");
+        },
+      },
+    },
+  });
+
+  const deleteSourceHandler = registered.find(
+    ([commandId]) => commandId === "sponzeySkills.deleteSourceSkill",
+  )[1];
+  const result = await deleteSourceHandler({
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+      appliedTargetCount: 1,
+    },
+    skillName: "alpha",
+    confirmationProvided: true,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(auditRecords.length, 1);
+  assert.equal(auditRecords[0].commandId, "sponzeySkills.deleteSourceSkill");
+  assert.equal(auditRecords[0].operationType, "source-delete");
+  assert.equal(auditRecords[0].status, "blocked");
+  assert.equal(auditRecords[0].eventCode, "skill.source.delete.blocked");
+  assert.deepEqual(auditRecords[0].diagnosticCodes, [
+    "source-delete-impact-confirmation-required",
+  ]);
+  assert.equal(auditRecords[0].sourceName, "alpha");
+  assert.equal(JSON.stringify(auditRecords[0]).includes("/repo/skills/alpha"), false);
+});
+
 test("activate registers tree data providers when window supports tree views", async () => {
   const registeredCommands = [];
   const registeredTrees = [];
@@ -320,6 +393,479 @@ test("refresh command updates registered tree provider cache", async () => {
   );
 });
 
+test("watcher refresh reports failed refresh result through watcher Product Log", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const watcherCallbacks = [];
+  const productEvents = [];
+  const fieldDebugEvents = [];
+  const context = { subscriptions: [] };
+  const activation = await activate(context, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        createFileSystemWatcher(pattern) {
+          return {
+            pattern,
+            onDidCreate(callback) {
+              watcherCallbacks.push(["create", callback]);
+              return { dispose() {} };
+            },
+            onDidChange(callback) {
+              watcherCallbacks.push(["change", callback]);
+              return { dispose() {} };
+            },
+            onDidDelete(callback) {
+              watcherCallbacks.push(["delete", callback]);
+              return { dispose() {} };
+            },
+            dispose() {},
+          };
+        },
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+        async fieldDebug(event) {
+          fieldDebugEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: false,
+            error: {
+              code: "source-scan-failed",
+              severity: "error",
+              message: "Source scan failed.",
+            },
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run when source scan fails");
+        },
+      },
+    },
+  });
+
+  assert.equal(activation.registeredWatcherCount, 4);
+  const changeCallback = watcherCallbacks.find(([type]) => type === "change")[1];
+  changeCallback({ fsPath: "/repo/skills/alpha/SKILL.md" });
+  await delay(130);
+
+  const watcherFailure = productEvents.find(
+    (event) => event.code === "watcher.refresh.failed",
+  );
+  assert.equal(watcherFailure?.reason, "source-scan-failed");
+  assert.equal(
+    fieldDebugEvents.some(
+      (event) =>
+        event.code === "watcher.debounce.completed" &&
+        event.status === "failed",
+    ),
+    true,
+  );
+});
+
+test("settings recomposition restarts refresh watchers and disposes old watchers", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const createdWatchers = [];
+  const disposeCalls = [];
+  let mainRepositoryPath = "/repo-a";
+  const context = { subscriptions: [] };
+  const activation = await activate(context, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      ConfigurationTarget: {
+        Global: "global",
+      },
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        createFileSystemWatcher(pattern) {
+          const watcher = {
+            pattern,
+            onDidCreate() {
+              return watcherDisposable(disposeCalls, "create", pattern);
+            },
+            onDidChange() {
+              return watcherDisposable(disposeCalls, "change", pattern);
+            },
+            onDidDelete() {
+              return watcherDisposable(disposeCalls, "delete", pattern);
+            },
+            dispose() {
+              disposeCalls.push(["watcher", pattern]);
+            },
+          };
+          createdWatchers.push(watcher);
+          return watcher;
+        },
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return mainRepositoryPath;
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+            async update(key, value) {
+              if (key === "mainRepositoryPath") {
+                mainRepositoryPath = value;
+              }
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async initializeRepository() {
+          return { ok: true };
+        },
+        async scanSourceSkills(input) {
+          return {
+            ok: true,
+            sources: [
+              {
+                id: "alpha",
+                name: "alpha",
+                sourcePath: `${input.repositoryPath}/skills/alpha`,
+              },
+            ],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run without targets");
+        },
+      },
+    },
+  });
+
+  assert.equal(activation.registeredWatcherCount, 4);
+  assert.deepEqual(
+    createdWatchers.map((watcher) => watcher.pattern),
+    ["/repo-a/**/*"],
+  );
+
+  const setHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.setMainRepository",
+  )[1];
+  const result = await setHandler({ mainRepositoryPath: "/repo-b" });
+
+  assert.equal(result.ok, true);
+  assert.equal(createdWatchers.length, 2);
+  assert.deepEqual(disposeCalls, [
+    ["watcher", "/repo-a/**/*"],
+    ["create", "/repo-a/**/*"],
+    ["change", "/repo-a/**/*"],
+    ["delete", "/repo-a/**/*"],
+  ]);
+  assert.equal(createdWatchers.at(-1).pattern, "/repo-b/**/*");
+});
+
+test("activation dedupes normalized refresh watcher paths", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const createdPatterns = [];
+  const activation = await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        createFileSystemWatcher(pattern) {
+          createdPatterns.push(pattern);
+          return {
+            onDidCreate() {
+              return { dispose() {} };
+            },
+            onDidChange() {
+              return { dispose() {} };
+            },
+            onDidDelete() {
+              return { dispose() {} };
+            },
+            dispose() {},
+          };
+        },
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [
+                  { clientType: "codex", targetPath: "/global" },
+                  { clientType: "codex", targetPath: "/global/" },
+                ];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          return {
+            ok: true,
+            appliedSkills: [],
+            diagnostics: [],
+          };
+        },
+      },
+    },
+  });
+
+  assert.equal(activation.registeredWatcherCount, 8);
+  assert.deepEqual(createdPatterns, ["/repo/**/*", "/global/**/*"]);
+});
+
+test("watcher registration failure logs Product Log without failing activation", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const productEvents = [];
+  const activation = await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        createFileSystemWatcher() {
+          throw new Error("cannot watch /repo");
+        },
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run without targets");
+        },
+      },
+    },
+  });
+
+  assert.equal(activation.registeredCommandCount, registeredCommands.length);
+  assert.equal(activation.registeredTreeDataProviderCount, registeredTrees.length);
+  assert.equal(activation.registeredWatcherCount, 0);
+  assert.deepEqual(productEvents, [
+    {
+      level: "ProductLog",
+      code: "watcher.registration.failed",
+      reason: "watcher-creation-failed",
+    },
+  ]);
+});
+
+test("watcher event registration failure logs Product Log and keeps valid disposables", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  const productEvents = [];
+  const activation = await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        createFileSystemWatcher() {
+          return {
+            onDidCreate() {
+              return { dispose() {} };
+            },
+            onDidChange() {
+              throw new Error("cannot register change callback");
+            },
+            onDidDelete() {
+              return { dispose() {} };
+            },
+            dispose() {},
+          };
+        },
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      logger: {
+        async product(event) {
+          productEvents.push(event);
+        },
+      },
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [],
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run without targets");
+        },
+      },
+    },
+  });
+
+  assert.equal(activation.registeredWatcherCount, 3);
+  assert.deepEqual(productEvents, [
+    {
+      level: "ProductLog",
+      code: "watcher.registration.failed",
+      reason: "watcher-event-registration-failed",
+    },
+  ]);
+});
+
 test("analyze command updates registered diagnostics tree provider cache", async () => {
   const registeredCommands = [];
   const registeredTrees = [];
@@ -390,6 +936,20 @@ test("analyze command updates registered diagnostics tree provider cache", async
           };
         },
       },
+      hashPort: {
+        async hashDirectory({ directoryPath }) {
+          assert.equal(directoryPath, "/repo/skills/alpha");
+          return { ok: true, hash: "source-hash-alpha" };
+        },
+      },
+      analysisStore: {
+        async writeAnalysisMetadata({ repositoryPath, metadata }) {
+          assert.equal(repositoryPath, "/repo");
+          assert.equal(metadata.skillId, "alpha");
+          assert.equal(metadata.sourceHash, "source-hash-alpha");
+          return { ok: true };
+        },
+      },
       targetStore: {
         async scanAppliedSkills() {
           throw new Error("target scan must not run without targets");
@@ -407,6 +967,12 @@ test("analyze command updates registered diagnostics tree provider cache", async
   const initialDiagnostics = await diagnosticsProvider.getChildren();
   const analyzeResult = await analyzeHandler();
   const updatedDiagnostics = await diagnosticsProvider.getChildren();
+  const updatedCategories = await diagnosticsProvider.getChildren(
+    updatedDiagnostics[0],
+  );
+  const updatedDiagnosticItems = await diagnosticsProvider.getChildren(
+    updatedCategories[0],
+  );
 
   assert.equal(analyzeResult.ok, true);
   assert.deepEqual(
@@ -419,6 +985,22 @@ test("analyze command updates registered diagnostics tree provider cache", async
       item.description,
       item.detail,
     ]),
+    [["warning", undefined, undefined]],
+  );
+  assert.deepEqual(
+    updatedCategories.map((item) => [
+      item.label,
+      item.description,
+      item.detail,
+    ]),
+    [["uncategorized", "1 item", undefined]],
+  );
+  assert.deepEqual(
+    updatedDiagnosticItems.map((item) => [
+      item.label,
+      item.description,
+      item.detail,
+    ]),
     [
       [
         "external-dependencies-detected",
@@ -426,6 +1008,143 @@ test("analyze command updates registered diagnostics tree provider cache", async
         "Skill declares external dependencies.",
       ],
     ],
+  );
+});
+
+test("analyze command dedupes persisted refresh diagnostics and manual refresh preserves them", async () => {
+  const registeredCommands = [];
+  const registeredTrees = [];
+  let storedMetadata = null;
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      EventEmitter: FakeEventEmitter,
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        registerTreeDataProvider(viewId, provider) {
+          registeredTrees.push([viewId, provider]);
+          return { dispose() {} };
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        workspaceFolders: [],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              return defaultValue;
+            },
+          };
+        },
+      },
+    },
+    analyzer: {
+      async analyzeSourceSkill() {
+        return {
+          riskLevel: "low",
+          diagnostics: [
+            {
+              code: "external-dependencies-detected",
+              severity: "warning",
+              category: "dependency",
+              message: "Skill declares external dependencies.",
+            },
+          ],
+        };
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async scanSourceSkills() {
+          return {
+            ok: true,
+            sources: [
+              {
+                id: "alpha",
+                name: "alpha",
+                sourcePath: "/repo/skills/alpha",
+              },
+            ],
+          };
+        },
+      },
+      hashPort: {
+        async hashDirectory({ directoryPath }) {
+          assert.equal(directoryPath, "/repo/skills/alpha");
+          return { ok: true, hash: "source-hash-alpha" };
+        },
+      },
+      analysisStore: {
+        async writeAnalysisMetadata({ repositoryPath, metadata }) {
+          assert.equal(repositoryPath, "/repo");
+          storedMetadata = metadata;
+          return { ok: true };
+        },
+        async readAnalysisMetadata({ repositoryPath, skillId }) {
+          assert.equal(repositoryPath, "/repo");
+          assert.equal(skillId, "alpha");
+          if (!storedMetadata) {
+            return {
+              ok: false,
+              error: {
+                code: "analysis-metadata-not-found",
+                severity: "warning",
+                message: "Analysis metadata was not found.",
+              },
+            };
+          }
+
+          return {
+            ok: true,
+            metadata: storedMetadata,
+          };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          throw new Error("target scan must not run without targets");
+        },
+      },
+    },
+  });
+
+  const diagnosticsProvider = registeredTrees.find(
+    ([viewId]) => viewId === "sponzeySkills.diagnostics",
+  )[1];
+  const analyzeHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.analyzeAllSkills",
+  )[1];
+  const refreshHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.refreshSkills",
+  )[1];
+
+  const analyzeResult = await analyzeHandler();
+  const afterAnalyzeItems = await diagnosticLeafItems(diagnosticsProvider);
+  const refreshResult = await refreshHandler();
+  const afterRefreshItems = await diagnosticLeafItems(diagnosticsProvider);
+
+  assert.equal(analyzeResult.ok, true);
+  assert.equal(refreshResult.ok, true);
+  assert.deepEqual(
+    afterAnalyzeItems.map((item) => [item.label, item.description]),
+    [["external-dependencies-detected", "alpha · warning"]],
+  );
+  assert.deepEqual(
+    afterRefreshItems.map((item) => [item.label, item.description]),
+    [["external-dependencies-detected", "alpha · warning"]],
   );
 });
 
@@ -1753,7 +2472,10 @@ test("remove applied skill command collects missing input from VSCode window", a
   assert.equal(result.ok, true);
   assert.deepEqual(
     quickPickCalls.map((call) => call.options.placeHolder),
-    ["Select target", "Select applied skill"],
+    [
+      "Select target to remove skill from",
+      "Select applied target skill to remove",
+    ],
   );
   assert.deepEqual(removeCalls, [{ targetPath: "/global/alpha" }]);
 });
@@ -1787,7 +2509,7 @@ test("transfer commands collect missing input from VSCode window", async () => {
         },
         async showQuickPick(items, options) {
           quickPickCalls.push({ items, options });
-          if (options.placeHolder === "Confirm target cleanup") {
+          if (options.placeHolder === "Remove original target entry after copy?") {
             return items.find((item) => item.value === true);
           }
           return items[0];
@@ -1894,13 +2616,13 @@ test("transfer commands collect missing input from VSCode window", async () => {
   assert.deepEqual(
     quickPickCalls.map((call) => call.options.placeHolder),
     [
-      "Select target",
-      "Select applied skill",
-      "Select target",
-      "Select applied skill",
-      "Select target",
-      "Select applied skill",
-      "Confirm target cleanup",
+      "Select target to copy skill from",
+      "Select applied target skill to copy",
+      "Select target to back up skill from",
+      "Select applied target skill to back up",
+      "Select target to move skill from",
+      "Select applied target skill to move",
+      "Remove original target entry after copy?",
     ],
   );
   assert.deepEqual(
@@ -1961,6 +2683,26 @@ class FakeEventEmitter {
   }
 
   fire() {}
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function watcherDisposable(disposeCalls, type, pattern) {
+  return {
+    dispose() {
+      disposeCalls.push([type, pattern]);
+    },
+  };
+}
+
+async function diagnosticLeafItems(provider) {
+  const severities = await provider.getChildren();
+  const categories = await provider.getChildren(severities[0]);
+  return provider.getChildren(categories[0]);
 }
 
 function globalTarget() {

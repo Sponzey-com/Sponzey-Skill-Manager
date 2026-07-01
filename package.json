@@ -1,10 +1,24 @@
 {
   "name": "sponzey-skills-manager",
+  "displayName": "Sponzey Skills Manager",
   "version": "0.0.0",
   "publisher": "atomsoft",
   "private": true,
   "type": "module",
   "description": "VSCode extension for managing Agent Skills repositories and targets.",
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "agent-skills",
+    "codex",
+    "claude",
+    "skills",
+    "vscode"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "icon": "media/sponzey-skills-icon.png",
   "main": "./src/extension.js",
   "scripts": {
@@ -328,6 +342,11 @@
           "group": "source@3"
         },
         {
+          "command": "sponzeySkills.showSkillDetail",
+          "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
+          "group": "navigation@0"
+        },
+        {
           "command": "sponzeySkills.promoteBackupToSkillSource",
           "when": "view == sponzeySkills.mainRepository && viewItem == sponzeySkillBackup",
           "group": "backup@1"
@@ -416,6 +435,16 @@
           "command": "sponzeySkills.moveAppliedSkillToMainRepository",
           "when": "view == sponzeySkills.projectSkills && viewItem == sponzeyAppliedSkill",
           "group": "transfer@3"
+        },
+        {
+          "command": "sponzeySkills.showSkillDetail",
+          "when": "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sponzeySkills.openSkillMd",
+          "when": "view == sponzeySkills.diagnostics && viewItem == sponzeyDiagnosticWithSource",
+          "group": "open@1"
         }
       ]
     },

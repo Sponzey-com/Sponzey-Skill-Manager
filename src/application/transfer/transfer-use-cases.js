@@ -1,3 +1,5 @@
+import { confirmationRequiredDiagnostic } from "../confirmation/confirmation-diagnostics.js";
+
 export async function copyAppliedSkillToMainRepository({
   context,
   input,
@@ -99,11 +101,12 @@ export async function moveAppliedSkillToMainRepository({
   const steps = ["ValidatingInput", "CheckingCleanupConfirmation"];
 
   if (input.cleanupConfirmed !== true) {
-    const decision = {
+    const decision = confirmationRequiredDiagnostic({
       code: "cleanup-confirmation-required",
-      severity: "error",
+      operation: "move-applied-skill-to-main-repository",
+      confirmationKey: "cleanupConfirmed",
       message: "Move requires explicit target cleanup confirmation.",
-    };
+    });
 
     return {
       ok: false,

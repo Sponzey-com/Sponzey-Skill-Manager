@@ -77,10 +77,17 @@ export async function activate(context, runtime = {}) {
         providers: treeDataProviders,
       })
     : handlersWithInputCollection;
+  const watcherLifecycle = createRefreshWatcherLifecycle({
+    runtimeSession,
+    providers: treeDataProviders,
+    vscodeApi,
+    logger: adapters.logger,
+  });
   const handlersWithTreeUpdates = wrapRuntimeMutationHandlers({
     handlers: handlersWithRefreshUpdates,
     runtimeSession,
     providers: treeDataProviders,
+    watcherLifecycle,
     defaultMainRepositoryPath,
     defaultGlobalTargets,
   });
@@ -109,18 +116,13 @@ export async function activate(context, runtime = {}) {
     providers: treeDataProviders,
     vscodeApi,
   });
-  const watcherDisposables = registerRefreshWatchers({
-    runtimeSession,
-    providers: treeDataProviders,
-    vscodeApi,
-    logger: adapters.logger,
-  });
+  const watcherDisposables = watcherLifecycle.start();
 
   if (context?.subscriptions) {
     context.subscriptions.push(
       ...disposables,
       ...treeDataProviderDisposables,
-      ...watcherDisposables,
+      ...(watcherDisposables.length > 0 ? [watcherLifecycle] : []),
     );
   }
 
@@ -130,7 +132,7 @@ export async function activate(context, runtime = {}) {
     presentation: describePresentationLayer(),
     registeredCommandCount: disposables.length,
     registeredTreeDataProviderCount: treeDataProviderDisposables.length,
-    registeredWatcherCount: watcherDisposables.length,
+    registeredWatcherCount: watcherLifecycle.getRegisteredCount(),
     composition: runtimeSession.getComposition(),
     runtimeSession,
   };
@@ -181,11 +183,13 @@ function wrapCommandHandlersWithAudit({ handlers, auditStore, runtimeSession }) 
             record: {
               operationId: `${Date.now()}:${commandId}`,
               commandId,
-              status: result?.ok === true ? "completed" : "failed",
+              operationType: auditOperationType({ commandId, event }),
+              status: auditStatusForResult({ result, event }),
               eventCode: event.code,
-              diagnostics: (result?.diagnostics ?? []).map(
+              diagnosticCodes: (result?.diagnostics ?? []).map(
                 (diagnostic) => diagnostic.code,
               ),
+              ...auditReferencesFromInput(input),
             },
           });
 
@@ -205,6 +209,97 @@ function wrapCommandHandlersWithAudit({ handlers, auditStore, runtimeSession }) 
 
 function shouldAuditEvent(event) {
   return /^skill\.(?:transfer|backup|source|apply)/.test(event?.code ?? "");
+}
+
+const AUDIT_OPERATION_TYPES = {
+  "sponzeySkills.applySkillToGlobalTarget": "apply-skill-to-global-target",
+  "sponzeySkills.applySkillToProjectTarget": "apply-skill-to-project-target",
+  "sponzeySkills.removeAppliedSkill": "remove-applied-skill",
+  "sponzeySkills.updateAppliedCopyFromSource": "update-copy-from-source",
+  "sponzeySkills.convertAppliedSkillMode": "convert-applied-skill-mode",
+  "sponzeySkills.copyAppliedSkillToMainRepository":
+    "copy-applied-skill-to-main-repository",
+  "sponzeySkills.backupAppliedSkillToMainRepository":
+    "backup-applied-skill-to-main-repository",
+  "sponzeySkills.moveAppliedSkillToMainRepository":
+    "move-applied-skill-to-main-repository",
+  "sponzeySkills.deleteSourceSkill": "source-delete",
+  "sponzeySkills.promoteBackupToSkillSource": "backup-promote-to-source",
+  "sponzeySkills.deleteBackup": "backup-delete",
+};
+
+function auditOperationType({ commandId, event }) {
+  if (typeof event?.operation === "string" && event.operation.length > 0) {
+    return event.operation;
+  }
+
+  return AUDIT_OPERATION_TYPES[commandId] ?? "unknown";
+}
+
+function auditStatusForResult({ result, event }) {
+  if (result?.ok === true) {
+    return "completed";
+  }
+
+  if ((event?.code ?? "").endsWith(".blocked")) {
+    return "blocked";
+  }
+
+  return "failed";
+}
+
+function auditReferencesFromInput(input = {}) {
+  const references = {};
+  assignSafeAuditReference(
+    references,
+    "skillName",
+    input.skillName ??
+      input.sourceName ??
+      input.source?.name ??
+      input.appliedSkill?.name ??
+      input.backup?.skillName,
+  );
+  assignSafeAuditReference(
+    references,
+    "sourceName",
+    input.source?.name ?? input.sourceName ?? input.skillName,
+  );
+  assignSafeAuditReference(
+    references,
+    "sourceId",
+    input.source?.id ?? input.appliedSkill?.sourceId,
+  );
+  assignSafeAuditReference(
+    references,
+    "targetId",
+    input.target?.id ?? input.appliedSkill?.targetId,
+  );
+  assignSafeAuditReference(
+    references,
+    "backupSnapshotId",
+    input.snapshotId ?? input.backup?.snapshotId,
+  );
+  assignSafeAuditReference(references, "clientType", input.target?.clientType);
+  assignSafeAuditReference(references, "scope", input.target?.scope);
+
+  return references;
+}
+
+function assignSafeAuditReference(target, key, value) {
+  if (!isSafeAuditReference(value)) {
+    return;
+  }
+
+  target[key] = value;
+}
+
+function isSafeAuditReference(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    !value.includes("/") &&
+    !value.includes("\\")
+  );
 }
 
 function selectRendererWindow({ runtime, vscodeApi }) {
@@ -259,6 +354,63 @@ function registerTreeDataProviders({ providers, vscodeApi }) {
   });
 }
 
+function createRefreshWatcherLifecycle({
+  runtimeSession,
+  providers,
+  vscodeApi,
+  logger,
+}) {
+  let currentDisposables = [];
+
+  return {
+    start() {
+      currentDisposables = registerRefreshWatchers({
+        runtimeSession,
+        providers,
+        vscodeApi,
+        logger,
+      });
+      return currentDisposables;
+    },
+    restart() {
+      const disposedCount = disposeRefreshWatchers(currentDisposables);
+      currentDisposables = registerRefreshWatchers({
+        runtimeSession,
+        providers,
+        vscodeApi,
+        logger,
+      });
+      return {
+        ok: true,
+        disposedCount,
+        registeredCount: currentDisposables.length,
+      };
+    },
+    dispose() {
+      disposeRefreshWatchers(currentDisposables);
+      currentDisposables = [];
+    },
+    getRegisteredCount() {
+      return currentDisposables.length;
+    },
+  };
+}
+
+function disposeRefreshWatchers(disposables) {
+  let disposedCount = 0;
+
+  for (const disposable of disposables ?? []) {
+    if (typeof disposable?.dispose !== "function") {
+      continue;
+    }
+
+    disposable.dispose();
+    disposedCount += 1;
+  }
+
+  return disposedCount;
+}
+
 function registerRefreshWatchers({
   runtimeSession,
   providers,
@@ -290,9 +442,13 @@ function registerRefreshWatchers({
       readModel: result?.readModel,
     });
     await routeLogEvents({ events: result?.events ?? [], logger });
+    return result;
   };
   const controller = createRefreshInvalidationController({
     refresh,
+    productLog: async (event) => {
+      await routeLogEvents({ events: [event], logger });
+    },
     fieldDebugLog: async (event) => {
       await routeLogEvents({ events: [event], logger });
     },
@@ -300,9 +456,19 @@ function registerRefreshWatchers({
 
   const disposables = [];
   for (const watchPath of watchedPathsFromContext(context)) {
-    const watcher = vscodeApi.workspace.createFileSystemWatcher(
-      watcherPattern({ vscodeApi, watchPath }),
-    );
+    let watcher;
+    try {
+      watcher = vscodeApi.workspace.createFileSystemWatcher(
+        watcherPattern({ vscodeApi, watchPath }),
+      );
+    } catch {
+      logWatcherRegistrationFailure({
+        logger,
+        reason: "watcher-creation-failed",
+      });
+      continue;
+    }
+
     disposables.push(watcher);
     disposables.push(
       registerWatcherEvent({
@@ -310,18 +476,21 @@ function registerRefreshWatchers({
         eventName: "onDidCreate",
         type: "create",
         controller,
+        logger,
       }),
       registerWatcherEvent({
         watcher,
         eventName: "onDidChange",
         type: "change",
         controller,
+        logger,
       }),
       registerWatcherEvent({
         watcher,
         eventName: "onDidDelete",
         type: "delete",
         controller,
+        logger,
       }),
     );
   }
@@ -329,25 +498,63 @@ function registerRefreshWatchers({
   return disposables.filter(Boolean);
 }
 
-function registerWatcherEvent({ watcher, eventName, type, controller }) {
+function registerWatcherEvent({ watcher, eventName, type, controller, logger }) {
   if (typeof watcher?.[eventName] !== "function") {
     return null;
   }
 
-  return watcher[eventName]((uri) =>
-    controller.invalidate({
-      type,
-      path: uri?.fsPath,
-    }),
-  );
+  try {
+    return watcher[eventName]((uri) =>
+      controller.invalidate({
+        type,
+        path: uri?.fsPath,
+      }),
+    );
+  } catch {
+    logWatcherRegistrationFailure({
+      logger,
+      reason: "watcher-event-registration-failed",
+    });
+    return null;
+  }
+}
+
+function logWatcherRegistrationFailure({ logger, reason }) {
+  void routeLogEvents({
+    events: [
+      {
+        level: "ProductLog",
+        code: "watcher.registration.failed",
+        reason,
+      },
+    ],
+    logger,
+  });
 }
 
 function watchedPathsFromContext(context) {
-  return [
+  const paths = [
     context.mainRepositoryPath,
     ...(context.globalTargets ?? []).map((target) => target.targetPath),
     ...(context.projectTargets ?? []).map((target) => target.targetPath),
-  ].filter((value) => typeof value === "string" && value.length > 0);
+  ]
+    .map(normalizeWatchPath)
+    .filter((value) => value.length > 0);
+
+  return [...new Set(paths)];
+}
+
+function normalizeWatchPath(value) {
+  const normalized = String(value ?? "")
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/\/+/g, "/");
+
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    return normalized.slice(0, -1);
+  }
+
+  return normalized;
 }
 
 function watcherPattern({ vscodeApi, watchPath }) {
@@ -381,6 +588,7 @@ function wrapRuntimeMutationHandlers({
   handlers,
   runtimeSession,
   providers,
+  watcherLifecycle,
   defaultMainRepositoryPath,
   defaultGlobalTargets,
 }) {
@@ -506,6 +714,10 @@ function wrapRuntimeMutationHandlers({
 
           if (result?.ok === true) {
             const recomposeResult = await runtimeSession.recompose();
+            const watcherRecomposition =
+              recomposeResult?.ok === true
+                ? watcherLifecycle?.restart?.()
+                : undefined;
             if (providers) {
               const refreshResult = await refreshHandler();
               refreshSponzeyTreeDataProviders({
@@ -517,6 +729,7 @@ function wrapRuntimeMutationHandlers({
             return {
               ...result,
               runtimeRecomposition: recomposeResult,
+              watcherRecomposition,
             };
           }
 
@@ -740,11 +953,46 @@ function readModelWithAdditionalDiagnostics({ readModel, diagnostics }) {
 
   return {
     ...baseReadModel,
-    diagnostics: [
-      ...(baseReadModel.diagnostics ?? []),
-      ...(Array.isArray(diagnostics) ? diagnostics : []),
-    ],
+    diagnostics: mergeReadModelDiagnostics({
+      baseDiagnostics: baseReadModel.diagnostics,
+      additionalDiagnostics: diagnostics,
+    }),
   };
+}
+
+function mergeReadModelDiagnostics({
+  baseDiagnostics = [],
+  additionalDiagnostics = [],
+}) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const diagnostic of [
+    ...(Array.isArray(baseDiagnostics) ? baseDiagnostics : []),
+    ...(Array.isArray(additionalDiagnostics) ? additionalDiagnostics : []),
+  ]) {
+    const key = diagnosticIdentity(diagnostic);
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(diagnostic);
+  }
+
+  return merged;
+}
+
+function diagnosticIdentity(diagnostic) {
+  const hasStableReference = hasText(diagnostic?.sourceId) || hasText(diagnostic?.targetId);
+
+  return [
+    diagnostic?.code ?? "",
+    diagnostic?.category ?? "",
+    diagnostic?.sourceId ?? "",
+    diagnostic?.targetId ?? "",
+    hasStableReference ? "" : diagnostic?.skillName ?? "",
+  ].join("|");
 }
 
 function createTreeReadModelLoader({ runtimeSession }) {

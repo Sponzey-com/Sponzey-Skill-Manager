@@ -12,6 +12,7 @@ export { refreshSkills } from "./refresh/refresh-skills.js";
 export {
   addGlobalRepository,
   addProjectRepository,
+  createRepositorySnapshot,
   openMainRepository,
   removeGlobalRepository,
   setMainRepository,
@@ -26,6 +27,7 @@ export {
 } from "./source/source-skill-use-cases.js";
 export {
   analyzeAllSkills,
+  compareSkillBackup,
   convertAppliedSkillMode,
   deleteBackup,
   deleteSourceSkill,
@@ -36,6 +38,7 @@ export {
   openSkillPath,
   promoteBackupToSkillSource,
   renameSourceSkill,
+  restoreBackupToTarget,
   updateAppliedCopyFromSource,
 } from "./skill/skill-operation-use-cases.js";
 export {
