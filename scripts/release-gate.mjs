@@ -31,8 +31,8 @@ const CHECKS = Object.freeze([
     failureCode: "PackageFailed",
   },
 ]);
-const SMOKE_CHECKLIST_PATH = ".tasks/release-smoke.md";
-const SMOKE_EVIDENCE_PATH = ".tasks/extension-host-smoke-evidence.md";
+const SMOKE_CHECKLIST_PATH = "docs/release-smoke.md";
+const SMOKE_EVIDENCE_PATH = "docs/extension-host-smoke-evidence.md";
 const REQUIRED_SMOKE_MARKERS = Object.freeze([
   "# Phase 004 릴리스 스모크 체크리스트",
   "## 1. 자동 검증",

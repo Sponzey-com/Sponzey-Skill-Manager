@@ -1,5 +1,6 @@
 .github/**
 .tasks/**
+docs/**
 .codex/**
 .agents/**
 test/**

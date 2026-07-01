@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const checklistPath = ".tasks/release-smoke.md";
-const evidenceTemplatePath = ".tasks/extension-host-smoke-evidence.md";
+const checklistPath = "docs/release-smoke.md";
+const evidenceTemplatePath = "docs/extension-host-smoke-evidence.md";
 
 const requiredSections = Object.freeze([
   "## 1. 자동 검증",

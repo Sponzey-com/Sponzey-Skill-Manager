@@ -42,7 +42,7 @@ test("release gate runs required checks and verifies smoke checklist", async () 
       checkedFiles.push(filePath);
     },
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return validSmokeChecklist;
@@ -61,8 +61,8 @@ test("release gate runs required checks and verifies smoke checklist", async () 
   assert.equal(result.ok, true);
   assert.deepEqual(checks, ["tests", "architecture", "manifest", "build"]);
   assert.deepEqual(checkedFiles, [
-    ".tasks/release-smoke.md",
-    ".tasks/extension-host-smoke-evidence.md",
+    "docs/release-smoke.md",
+    "docs/extension-host-smoke-evidence.md",
   ]);
   assert.deepEqual(packagingChecks, [{ mode: "check" }]);
   assert.deepEqual(result.checked, [
@@ -84,7 +84,7 @@ test("release gate returns machine-readable failure code", async () => {
     },
     async checkFile() {},
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return validSmokeChecklist;
@@ -105,7 +105,7 @@ test("release gate rejects invalid smoke checklist content", async () => {
     },
     async checkFile() {},
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return "# Wrong Checklist\n\n## 1. 자동 검증\n";
@@ -125,12 +125,12 @@ test("release gate rejects missing smoke evidence template", async () => {
       return { ok: true };
     },
     async checkFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         throw new Error("missing evidence");
       }
     },
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return validSmokeChecklist;
@@ -151,7 +151,7 @@ test("release gate rejects invalid smoke evidence template content", async () =>
     },
     async checkFile() {},
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return "# Wrong Evidence\n";
       }
       return validSmokeChecklist;
@@ -172,7 +172,7 @@ test("release gate records skipped local VSIX packaging without failing", async 
     },
     async checkFile() {},
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return validSmokeChecklist;
@@ -215,7 +215,7 @@ test("release gate fails with machine-readable packaging failure", async () => {
     },
     async checkFile() {},
     async readTextFile(filePath) {
-      if (filePath === ".tasks/extension-host-smoke-evidence.md") {
+      if (filePath === "docs/extension-host-smoke-evidence.md") {
         return validSmokeEvidence;
       }
       return validSmokeChecklist;
