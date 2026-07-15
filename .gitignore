@@ -65,3 +65,4 @@ out/
 .pnp.*
 
 .tasks/
+.agents
