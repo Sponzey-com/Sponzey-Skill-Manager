@@ -2654,15 +2654,21 @@ test("install skill command creates default main repository before resolving Git
         },
       },
       skillSourceResolver: {
-        async resolveInstallSource(input) {
+        async resolveInstallSources(input) {
           resolverCalls.push(input);
           return {
             ok: true,
-            sourcePath: "/tmp/review-skill",
-            origin: {
-              type: "github",
-              url: input.reference,
-            },
+            sources: [
+              {
+                name: "review-skill",
+                sourcePath: "/tmp/review-skill",
+                origin: {
+                  type: "github",
+                  url: input.reference,
+                  subPath: "review-skill",
+                },
+              },
+            ],
             async cleanup() {},
           };
         },
@@ -2688,7 +2694,7 @@ test("install skill command creates default main repository before resolving Git
   assert.equal(result.ok, true);
   assert.deepEqual(
     prompts.map(([kind]) => kind),
-    ["inputBox", "inputBox", "quickPick"],
+    ["inputBox", "quickPick"],
   );
   assert.deepEqual(initializeCalls, [
     { repositoryPath: "/home/test/SponzeySkills" },
@@ -2706,6 +2712,7 @@ test("install skill command creates default main repository before resolving Git
       origin: {
         type: "github",
         url: "https://github.com/acme/review-skill",
+        subPath: "review-skill",
       },
     },
   ]);

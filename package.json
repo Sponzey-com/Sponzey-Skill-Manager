@@ -1,7 +1,7 @@
 {
   "name": "sponzey-skills-manager",
   "displayName": "Sponzey Skills Manager",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "Sponzey",
   "private": true,
   "type": "module",

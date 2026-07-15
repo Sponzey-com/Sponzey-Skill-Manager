@@ -125,6 +125,75 @@ test("LocalGitSkillSourceResolver supports GitHub tree URLs with branch and subp
   await result.cleanup();
 });
 
+test("LocalGitSkillSourceResolver discovers every skill below the selected GitHub folder", async () => {
+  const tempRoot = await createTempPath("ssm-github-folder-source-");
+  const resolver = new LocalGitSkillSourceResolver({
+    async tempDirectoryFactory() {
+      return tempRoot;
+    },
+    async commandRunner(command) {
+      const clonePath = command.args.at(-1);
+      await mkdir(path.join(clonePath, "catalog", "review"), { recursive: true });
+      await mkdir(path.join(clonePath, "catalog", "nested", "testing"), {
+        recursive: true,
+      });
+      await mkdir(path.join(clonePath, "outside"), { recursive: true });
+      await writeFile(
+        path.join(clonePath, "catalog", "review", "SKILL.md"),
+        "review skill",
+      );
+      await writeFile(
+        path.join(clonePath, "catalog", "nested", "testing", "SKILL.md"),
+        "testing skill",
+      );
+      await writeFile(
+        path.join(clonePath, "outside", "SKILL.md"),
+        "outside skill",
+      );
+    },
+  });
+
+  const result = await resolver.resolveInstallSources({
+    reference: "https://github.com/acme/skills/tree/main/catalog",
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.sources.map((source) => ({
+      name: source.name,
+      sourcePath: source.sourcePath,
+      origin: source.origin,
+    })),
+    [
+      {
+        name: "testing",
+        sourcePath: path.join(tempRoot, "repo", "catalog", "nested", "testing"),
+        origin: {
+          type: "github",
+          url: "https://github.com/acme/skills/tree/main/catalog",
+          cloneUrl: "https://github.com/acme/skills.git",
+          ref: "main",
+          subPath: "catalog/nested/testing",
+        },
+      },
+      {
+        name: "review",
+        sourcePath: path.join(tempRoot, "repo", "catalog", "review"),
+        origin: {
+          type: "github",
+          url: "https://github.com/acme/skills/tree/main/catalog",
+          cloneUrl: "https://github.com/acme/skills.git",
+          ref: "main",
+          subPath: "catalog/review",
+        },
+      },
+    ],
+  );
+
+  await result.cleanup();
+  await assertRejectsAccess(tempRoot);
+});
+
 test("LocalGitSkillSourceResolver rejects sources without SKILL.md", async () => {
   const sourcePath = await createTempPath("ssm-invalid-source-");
   const resolver = new LocalGitSkillSourceResolver();

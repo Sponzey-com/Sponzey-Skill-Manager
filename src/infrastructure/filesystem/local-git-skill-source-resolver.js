@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -37,6 +37,58 @@ export class LocalGitSkillSourceResolver {
     });
   }
 
+  async resolveInstallSources({ reference }) {
+    const normalizedReference = String(reference ?? "").trim();
+    const githubReference = parseGitHubReference(normalizedReference);
+
+    if (!githubReference) {
+      return invalidGitHubInstallSourceReference();
+    }
+
+    const cloned = await this.cloneGitHubRepository({ githubReference });
+    if (!cloned.ok) {
+      return cloned;
+    }
+
+    const discoveryRootResult = resolveDiscoveryRoot({
+      clonePath: cloned.clonePath,
+      subPath: githubReference.subPath,
+    });
+    if (!discoveryRootResult.ok) {
+      await cloned.cleanup();
+      return discoveryRootResult;
+    }
+
+    const discoveredPaths = await discoverSkillDirectories(
+      discoveryRootResult.discoveryRootPath,
+    );
+    if (discoveredPaths.length === 0) {
+      await cloned.cleanup();
+      return installSourcesNotFound();
+    }
+
+    return {
+      ok: true,
+      sources: discoveredPaths.map((sourcePath) => {
+        const relativeSourcePath = normalizeRelativePath(
+          path.relative(cloned.clonePath, sourcePath),
+        );
+        return {
+          name: path.basename(sourcePath),
+          sourcePath,
+          origin: compactObject({
+            type: "github",
+            url: normalizedReference,
+            cloneUrl: githubReference.cloneUrl,
+            ref: githubReference.ref,
+            subPath: relativeSourcePath,
+          }),
+        };
+      }),
+      cleanup: cloned.cleanup,
+    };
+  }
+
   async resolveLocalInstallSource({ reference }) {
     const sourcePath = path.resolve(reference);
     const validation = await validateSkillSourcePath({ sourcePath });
@@ -57,6 +109,36 @@ export class LocalGitSkillSourceResolver {
   }
 
   async resolveGitHubInstallSource({ reference, githubReference }) {
+    const cloned = await this.cloneGitHubRepository({ githubReference });
+    if (!cloned.ok) {
+      return cloned;
+    }
+
+    const sourcePath = githubReference.subPath
+      ? path.join(cloned.clonePath, githubReference.subPath)
+      : cloned.clonePath;
+    const validation = await validateSkillSourcePath({ sourcePath });
+
+    if (!validation.ok) {
+      await cloned.cleanup();
+      return validation;
+    }
+
+    return {
+      ok: true,
+      sourcePath,
+      origin: compactObject({
+        type: "github",
+        url: reference,
+        cloneUrl: githubReference.cloneUrl,
+        ref: githubReference.ref,
+        subPath: githubReference.subPath,
+      }),
+      cleanup: cloned.cleanup,
+    };
+  }
+
+  async cloneGitHubRepository({ githubReference }) {
     const tempRootPath = await this.tempDirectoryFactory();
     const clonePath = path.join(tempRootPath, "repo");
     const args = buildGitCloneArgs({ githubReference, clonePath });
@@ -76,31 +158,77 @@ export class LocalGitSkillSourceResolver {
       return sourceDownloadFailed(error);
     }
 
-    const sourcePath = githubReference.subPath
-      ? path.join(clonePath, githubReference.subPath)
-      : clonePath;
-    const validation = await validateSkillSourcePath({ sourcePath });
-
-    if (!validation.ok) {
-      await this.removeDirectory(tempRootPath);
-      return validation;
-    }
-
     return {
       ok: true,
-      sourcePath,
-      origin: compactObject({
-        type: "github",
-        url: reference,
-        cloneUrl: githubReference.cloneUrl,
-        ref: githubReference.ref,
-        subPath: githubReference.subPath,
-      }),
+      clonePath,
       cleanup: async () => {
         await this.removeDirectory(tempRootPath);
       },
     };
   }
+}
+
+const IGNORED_DISCOVERY_DIRECTORIES = new Set([
+  ".git",
+  ".sponzey",
+  "node_modules",
+]);
+
+async function discoverSkillDirectories(rootPath) {
+  if (await containsSkillMarkdown(rootPath)) {
+    return [rootPath];
+  }
+
+  let entries;
+  try {
+    entries = await readdir(rootPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const directories = entries
+    .filter(
+      (entry) =>
+        entry.isDirectory() && !IGNORED_DISCOVERY_DIRECTORIES.has(entry.name),
+    )
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const discovered = [];
+
+  for (const directory of directories) {
+    discovered.push(
+      ...(await discoverSkillDirectories(path.join(rootPath, directory.name))),
+    );
+  }
+
+  return discovered;
+}
+
+async function containsSkillMarkdown(directoryPath) {
+  try {
+    await access(path.join(directoryPath, "SKILL.md"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveDiscoveryRoot({ clonePath, subPath }) {
+  const resolvedClonePath = path.resolve(clonePath);
+  const discoveryRootPath = path.resolve(clonePath, subPath ?? ".");
+  const relativePath = path.relative(resolvedClonePath, discoveryRootPath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return invalidGitHubFolderPath();
+  }
+
+  return {
+    ok: true,
+    discoveryRootPath,
+  };
+}
+
+function normalizeRelativePath(value) {
+  return String(value ?? "").replaceAll("\\", "/");
 }
 
 function buildGitCloneArgs({ githubReference, clonePath }) {
@@ -200,6 +328,39 @@ function invalidInstallSourceReference() {
       code: "invalid-install-source-reference",
       severity: "error",
       message: "Install source reference must be a GitHub URL or local path.",
+    },
+  };
+}
+
+function invalidGitHubInstallSourceReference() {
+  return {
+    ok: false,
+    error: {
+      code: "invalid-github-install-source-reference",
+      severity: "error",
+      message: "Recursive install requires a GitHub repository or folder URL.",
+    },
+  };
+}
+
+function invalidGitHubFolderPath() {
+  return {
+    ok: false,
+    error: {
+      code: "invalid-github-folder-path",
+      severity: "error",
+      message: "Selected GitHub folder must remain inside the cloned repository.",
+    },
+  };
+}
+
+function installSourcesNotFound() {
+  return {
+    ok: false,
+    error: {
+      code: "install-source-skills-not-found",
+      severity: "error",
+      message: "No SKILL.md files were found below the selected GitHub folder.",
     },
   };
 }

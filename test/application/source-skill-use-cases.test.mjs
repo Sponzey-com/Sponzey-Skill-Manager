@@ -454,6 +454,188 @@ test("installSkillToMainRepository resolves path or URL then imports into main r
   });
 });
 
+test("installSkillToMainRepository installs every skill discovered below a GitHub folder", async () => {
+  const calls = [];
+  const result = await installSkillToMainRepository({
+    context: { mainRepositoryPath: "/repo" },
+    input: {
+      sourceReference: "https://github.com/acme/skills/tree/main/catalog",
+      installAllDiscoveredSkills: true,
+      runAnalysisAfterInstall: false,
+    },
+    skillSourceResolver: {
+      async resolveInstallSources(input) {
+        calls.push(["resolveInstallSources", input]);
+        return {
+          ok: true,
+          sources: [
+            {
+              name: "review",
+              sourcePath: "/tmp/repo/catalog/review",
+              origin: {
+                type: "github",
+                subPath: "catalog/review",
+              },
+            },
+            {
+              name: "testing",
+              sourcePath: "/tmp/repo/catalog/testing",
+              origin: {
+                type: "github",
+                subPath: "catalog/testing",
+              },
+            },
+          ],
+          async cleanup() {
+            calls.push(["cleanup"]);
+          },
+        };
+      },
+    },
+    skillRepository: {
+      async importSourceSkill(input) {
+        calls.push(["importSourceSkill", input]);
+        return {
+          ok: true,
+          source: {
+            id: input.skillName,
+            name: input.skillName,
+            sourcePath: `/repo/skills/${input.skillName}`,
+          },
+        };
+      },
+    },
+    analyzer: {
+      async analyzeImportedSkill() {
+        throw new Error("analysis must remain disabled");
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [
+    [
+      "resolveInstallSources",
+      {
+        reference: "https://github.com/acme/skills/tree/main/catalog",
+      },
+    ],
+    [
+      "importSourceSkill",
+      {
+        repositoryPath: "/repo",
+        externalSourcePath: "/tmp/repo/catalog/review",
+        skillName: "review",
+        origin: {
+          type: "github",
+          subPath: "catalog/review",
+        },
+      },
+    ],
+    [
+      "importSourceSkill",
+      {
+        repositoryPath: "/repo",
+        externalSourcePath: "/tmp/repo/catalog/testing",
+        skillName: "testing",
+        origin: {
+          type: "github",
+          subPath: "catalog/testing",
+        },
+      },
+    ],
+    ["cleanup"],
+  ]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.sources.map((source) => source.name),
+    ["review", "testing"],
+  );
+  assert.deepEqual(result.installSummary, {
+    discoveredCount: 2,
+    installedCount: 2,
+    failedCount: 0,
+  });
+  assert.equal(result.events.at(-1).code, "skill.install.batch.completed");
+});
+
+test("installSkillToMainRepository continues after one discovered skill conflicts", async () => {
+  const calls = [];
+  const result = await installSkillToMainRepository({
+    context: { mainRepositoryPath: "/repo" },
+    input: {
+      sourceReference: "https://github.com/acme/skills/tree/main/catalog",
+      installAllDiscoveredSkills: true,
+      runAnalysisAfterInstall: false,
+    },
+    skillSourceResolver: {
+      async resolveInstallSources() {
+        return {
+          ok: true,
+          sources: [
+            {
+              name: "existing",
+              sourcePath: "/tmp/repo/catalog/existing",
+              origin: { type: "github", subPath: "catalog/existing" },
+            },
+            {
+              name: "new-skill",
+              sourcePath: "/tmp/repo/catalog/new-skill",
+              origin: { type: "github", subPath: "catalog/new-skill" },
+            },
+          ],
+          async cleanup() {
+            calls.push("cleanup");
+          },
+        };
+      },
+    },
+    skillRepository: {
+      async importSourceSkill(input) {
+        calls.push(input.skillName);
+        if (input.skillName === "existing") {
+          return {
+            ok: false,
+            error: {
+              code: "source-name-conflict",
+              severity: "error",
+              message: "Source skill already exists.",
+            },
+          };
+        }
+
+        return {
+          ok: true,
+          source: {
+            id: input.skillName,
+            name: input.skillName,
+            sourcePath: `/repo/skills/${input.skillName}`,
+          },
+        };
+      },
+    },
+    analyzer: {
+      async analyzeImportedSkill() {
+        throw new Error("analysis must remain disabled");
+      },
+    },
+  });
+
+  assert.deepEqual(calls, ["existing", "new-skill", "cleanup"]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.installSummary, {
+    discoveredCount: 2,
+    installedCount: 1,
+    failedCount: 1,
+  });
+  assert.deepEqual(result.sources.map((source) => source.name), ["new-skill"]);
+  assert.equal(result.diagnostics[0].skillName, "existing");
+  assert.equal(
+    result.events.at(-1).code,
+    "skill.install.batch.partially-completed",
+  );
+  assert.equal(result.steps.at(-1), "PartiallyCompleted");
+});
+
 test("installSkillToMainRepository cleans resolved source after import conflict", async () => {
   const calls = [];
   const result = await installSkillToMainRepository({

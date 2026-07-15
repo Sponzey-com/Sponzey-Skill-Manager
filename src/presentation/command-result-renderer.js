@@ -45,6 +45,13 @@ function createCommandResultRendering({ result, prefix }) {
   const diagnostic = selectDiagnostic(result?.diagnostics);
   const detail = selectDetail(result?.detail);
   const event = selectProductEvent(result?.events);
+  if (isBatchInstallEvent(event)) {
+    return {
+      level: selectBatchInstallRenderLevel(event),
+      message: createBatchInstallMessage({ prefix, result, event }),
+    };
+  }
+
   if (isAnalysisCompletedEvent(event)) {
     return {
       level: selectAnalysisRenderLevel(result?.diagnostics),
@@ -160,6 +167,21 @@ function createAnalysisCompletedMessage({ prefix, event }) {
   return `${prefix}: ${event.code} - ${skillCount} ${pluralize(skillCount, "skill")} analyzed, ${diagnosticCount} ${pluralize(diagnosticCount, "diagnostic")} found. Check Diagnostics for details.`;
 }
 
+function createBatchInstallMessage({ prefix, result, event }) {
+  const discoveredCount = numberOrZero(
+    result?.installSummary?.discoveredCount ?? event?.discoveredCount,
+  );
+  const installedCount = numberOrZero(
+    result?.installSummary?.installedCount ?? event?.installedCount,
+  );
+  const failedCount = numberOrZero(
+    result?.installSummary?.failedCount ?? event?.failedCount,
+  );
+  const diagnosticsHint = failedCount > 0 ? " Check Diagnostics for details." : "";
+
+  return `${prefix}: ${event.code} - ${discoveredCount} ${pluralize(discoveredCount, "skill")} discovered, ${installedCount} installed, ${failedCount} failed.${diagnosticsHint}`;
+}
+
 function createBackupLifecycleMessage({ result, event }) {
   if (event?.code === "skill.backup.compare.completed") {
     return createBackupCompareMessage({ result, event });
@@ -214,6 +236,26 @@ function isCodexGlobalApplyResult({ result, event }) {
 
 function isAnalysisCompletedEvent(event) {
   return event?.code === "skill.analysis.completed";
+}
+
+function isBatchInstallEvent(event) {
+  return new Set([
+    "skill.install.batch.completed",
+    "skill.install.batch.partially-completed",
+    "skill.install.batch.failed",
+  ]).has(event?.code);
+}
+
+function selectBatchInstallRenderLevel(event) {
+  if (event?.code === "skill.install.batch.failed") {
+    return "error";
+  }
+
+  if (event?.code === "skill.install.batch.partially-completed") {
+    return "warning";
+  }
+
+  return "info";
 }
 
 function selectRenderLevel({ result, diagnostic }) {

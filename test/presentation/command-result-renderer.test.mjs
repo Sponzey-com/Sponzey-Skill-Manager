@@ -24,6 +24,61 @@ test("renderCommandResult shows information message for successful result", asyn
   });
 });
 
+test("renderCommandResult summarizes complete and partial GitHub folder installs", async () => {
+  const calls = [];
+
+  await renderCommandResult({
+    result: {
+      ok: true,
+      installSummary: {
+        discoveredCount: 3,
+        installedCount: 3,
+        failedCount: 0,
+      },
+      diagnostics: [],
+      events: [
+        { level: "ProductLog", code: "skill.install.batch.completed" },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+  await renderCommandResult({
+    result: {
+      ok: true,
+      installSummary: {
+        discoveredCount: 3,
+        installedCount: 2,
+        failedCount: 1,
+      },
+      diagnostics: [
+        {
+          code: "source-name-conflict",
+          severity: "error",
+          message: "Source skill already exists.",
+        },
+      ],
+      events: [
+        {
+          level: "ProductLog",
+          code: "skill.install.batch.partially-completed",
+        },
+      ],
+    },
+    window: fakeWindow(calls),
+  });
+
+  assert.deepEqual(calls, [
+    [
+      "info",
+      "Sponzey Skills: skill.install.batch.completed - 3 skills discovered, 3 installed, 0 failed.",
+    ],
+    [
+      "warning",
+      "Sponzey Skills: skill.install.batch.partially-completed - 3 skills discovered, 2 installed, 1 failed. Check Diagnostics for details.",
+    ],
+  ]);
+});
+
 test("renderCommandResult shows detail-specific next action messages without paths", async () => {
   const calls = [];
 

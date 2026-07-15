@@ -28,6 +28,8 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - Use `Sponzey Skills: Create Skill` to create a new source skill.
 - Use `Sponzey Skills: Import Skill to Main Repository` to copy a local skill folder into the Main Repository.
 - Use `Sponzey Skills: Install Skill from URL or Path` to resolve a GitHub URL or local path and install it into the Main Repository.
+- A GitHub folder URL such as `https://github.com/owner/repository/tree/main/skills` discovers and installs every folder containing `SKILL.md` below only the selected `skills` folder.
+- A GitHub repository root URL discovers skills below the repository root. Local paths continue to import one selected skill folder with a custom name.
 - Use `Sponzey Skills: Import Skill Archive` to import a Sponzey skill archive bundle.
 
 ## Apply And Remove

@@ -1450,7 +1450,17 @@ async function collectInstallSkillInput({ commandId, input, window }) {
     nextInput.sourceReference = sourceReference;
   }
 
-  if (!hasText(nextInput.name)) {
+  if (
+    !hasText(nextInput.name) &&
+    isGitHubSourceReference(nextInput.sourceReference)
+  ) {
+    nextInput.installAllDiscoveredSkills = true;
+  }
+
+  if (
+    nextInput.installAllDiscoveredSkills !== true &&
+    !hasText(nextInput.name)
+  ) {
     const name = await showInputBox({
       window,
       prompt: "Installed skill name",
@@ -1966,6 +1976,19 @@ async function chooseRequiredQuickPick({
 
 function hasText(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isGitHubSourceReference(value) {
+  const reference = String(value ?? "").trim();
+  if (/^git@github\.com:/i.test(reference)) {
+    return true;
+  }
+
+  try {
+    return new URL(reference).hostname.toLowerCase() === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 function hasSource(source) {

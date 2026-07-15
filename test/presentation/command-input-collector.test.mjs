@@ -138,7 +138,7 @@ test("collectCommandInput preserves existing import skill DTO without prompting"
   });
 });
 
-test("collectCommandInput prompts missing install source reference, name, and analysis option", async () => {
+test("collectCommandInput enables recursive install for a GitHub folder URL", async () => {
   const calls = [];
   const result = await collectCommandInput({
     commandId: "sponzeySkills.installSkill",
@@ -147,8 +147,7 @@ test("collectCommandInput prompts missing install source reference, name, and an
       calls,
       openDialogResponses: [],
       inputResponses: [
-        "https://github.com/acme/review-skill",
-        "review-skill",
+        "https://github.com/acme/skills/tree/main/catalog",
       ],
       quickPickResponses: [{ label: "Run analysis", value: true }],
     }),
@@ -156,16 +155,42 @@ test("collectCommandInput prompts missing install source reference, name, and an
 
   assert.deepEqual(
     calls.map((call) => call.kind),
-    ["inputBox", "inputBox", "quickPick"],
+    ["inputBox", "quickPick"],
   );
   assert.equal(calls[0].options.prompt, "GitHub URL or local skill folder path");
-  assert.equal(calls[1].options.value, "review-skill");
   assert.deepEqual(result, {
     ok: true,
     input: {
-      sourceReference: "https://github.com/acme/review-skill",
-      name: "review-skill",
+      sourceReference: "https://github.com/acme/skills/tree/main/catalog",
+      installAllDiscoveredSkills: true,
       runAnalysisAfterInstall: true,
+    },
+  });
+});
+
+test("collectCommandInput keeps custom naming for a local install folder", async () => {
+  const calls = [];
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.installSkill",
+    input: {},
+    window: fakeImportWindow({
+      calls,
+      openDialogResponses: [],
+      inputResponses: ["/external/review", "custom-review"],
+      quickPickResponses: [{ label: "Skip analysis", value: false }],
+    }),
+  });
+
+  assert.deepEqual(
+    calls.map((call) => call.kind),
+    ["inputBox", "inputBox", "quickPick"],
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    input: {
+      sourceReference: "/external/review",
+      name: "custom-review",
+      runAnalysisAfterInstall: false,
     },
   });
 });
