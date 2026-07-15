@@ -36,10 +36,12 @@ jobs:
           if [ "${GITHUB_REF_NAME}" = "${RELEASE_TAG}" ]; then
             echo "release_mode=release" >> "${GITHUB_OUTPUT}"
             echo "register_release=true" >> "${GITHUB_OUTPUT}"
+            echo "publish_marketplace=true" >> "${GITHUB_OUTPUT}"
             echo "base_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
           elif [ "${GITHUB_REF_NAME}" = "${BUILD_ONLY_TAG}" ]; then
             echo "release_mode=build-only" >> "${GITHUB_OUTPUT}"
             echo "register_release=false" >> "${GITHUB_OUTPUT}"
+            echo "publish_marketplace=false" >> "${GITHUB_OUTPUT}"
             echo "base_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
           else
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}. Expected ${RELEASE_TAG} for release or ${BUILD_ONLY_TAG} for build-only." >&2
@@ -77,6 +79,20 @@ jobs:
           name: ${{ steps.vsix.outputs.name }}
           path: ${{ steps.vsix.outputs.path }}
           if-no-files-found: error
+
+      - name: Publish VSIX to VS Code Marketplace
+        if: steps.tag_policy.outputs.publish_marketplace == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSIX_PATH: ${{ steps.vsix.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT}" ]; then
+            echo "GitHub Actions secret VSCE_PAT is required for Marketplace publishing." >&2
+            exit 1
+          fi
+          node_modules/.bin/vsce publish --packagePath "${VSIX_PATH}"
 
       - name: Register VSIX in GitHub Release
         if: steps.tag_policy.outputs.register_release == 'true'

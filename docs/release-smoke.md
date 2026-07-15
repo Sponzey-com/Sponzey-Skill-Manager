@@ -112,8 +112,10 @@
 - [x] `npm run package:vsix-candidate`는 local `node_modules/.bin/vsce`가 있을 때만 `.dist/` 아래 local `.vsix`를 생성한다.
 - [x] `PackagingToolMissing`은 VSIX publishing failure가 아니라 조치 가능한 local packaging skip으로 처리된다.
 - [x] `Release VSIX` GitHub Actions workflow는 `v` prefix tag push를 기준으로 `.vsix`를 빌드한다.
-- [x] `v0.1.0` 같은 release tag는 `package.json` version과 일치할 때 `.vsix`를 GitHub Release asset으로 등록한다.
-- [x] `v0.1.0a` 같은 build-only tag는 `package.json` version과 일치할 때 `.vsix` workflow artifact만 만들고 GitHub Release 등록을 건너뛴다.
+- [x] `v0.1.1` 같은 release tag는 `package.json` version과 일치할 때 `.vsix`를 GitHub Release asset으로 등록한다.
+- [x] `v0.1.1a` 같은 build-only tag는 `package.json` version과 일치할 때 `.vsix` workflow artifact만 만들고 GitHub Release 등록을 건너뛴다.
+- [x] release tag는 `VSCE_PAT` GitHub Actions secret을 환경 변수로만 전달하여 검증된 동일 `.vsix`를 VS Code Marketplace에 게시한다.
+- [x] build-only tag는 VS Code Marketplace 게시 단계를 건너뛰며 `VSCE_PAT`를 수신하지 않는다.
 - [x] GitHub tag가 release tag 또는 build-only tag 규칙과 일치하지 않으면 workflow가 실패한다.
 - [x] Release gate failure code는 machine-readable 상태를 유지한다.
 - [x] Phase 004 local release candidate readiness에는 VSIX publishing이 필요하지 않다.

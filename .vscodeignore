@@ -8,6 +8,8 @@ scripts/**
 .dist/**
 coverage/**
 node_modules/**
+.env
+.env.*
 *.log
 *.pid
 *.pid.lock

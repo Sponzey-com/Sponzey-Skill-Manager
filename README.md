@@ -92,21 +92,21 @@ to create a local `.vsix` candidate in `.dist/` when the local packaging tool is
 
 The `Release VSIX` GitHub Actions workflow runs when a version tag is pushed. The tag base must match `package.json` version with a `v` prefix.
 
-Use a release tag to build the VSIX and register it in GitHub Release. For version `0.1.0`, use:
+Use a release tag to build the VSIX, publish it to the VS Code Marketplace, and register it in GitHub Release. The repository must define a `VSCE_PAT` Actions secret with Azure DevOps `Marketplace: Manage` scope. For version `0.1.1`, use:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-Use a build-only tag to build the VSIX without registering it in GitHub Release. For version `0.1.0`, use:
+Use a build-only tag to build the VSIX without registering it in GitHub Release. For version `0.1.1`, use:
 
 ```sh
-git tag v0.1.0a
-git push origin v0.1.0a
+git tag v0.1.1a
+git push origin v0.1.1a
 ```
 
-The workflow installs a local `@vscode/vsce` packaging tool in the GitHub runner, runs `npm run release:gate`, runs `npm run package:vsix-candidate`, and uploads the `.vsix` as a workflow artifact. Tags like `v0.1.0` also register the `.vsix` in the matching GitHub Release. Tags like `v0.1.0a` are build-only and skip GitHub Release registration.
+The workflow installs a local `@vscode/vsce` packaging tool in the GitHub runner, runs `npm run release:gate`, runs `npm run package:vsix-candidate`, and uploads the `.vsix` as a workflow artifact. Tags like `v0.1.1` publish that exact VSIX to the VS Code Marketplace using `VSCE_PAT`, then register it in the matching GitHub Release. Tags like `v0.1.1a` are build-only and skip both Marketplace publishing and GitHub Release registration. Never store the PAT in source files or workflow arguments.
 
 Use:
 

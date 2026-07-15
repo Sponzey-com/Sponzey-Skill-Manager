@@ -56,7 +56,7 @@ const requiredPhase004Signals = Object.freeze([
   "tag",
   "`v` prefix",
   "build-only",
-  "v0.1.0a",
+  "v0.1.1a",
   "VSIX publishing이 필요하지 않다",
 ]);
 

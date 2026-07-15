@@ -30,7 +30,7 @@ const requiredDevelopmentSignals = Object.freeze([
   "git push origin",
   "GitHub Release",
   "build-only",
-  "v0.1.0a",
+  "v0.1.1a",
   "scripts/run-vscode-extension-host.sh",
 ]);
 

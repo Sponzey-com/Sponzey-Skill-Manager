@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   buildVsixCandidateFileName,
@@ -134,4 +135,13 @@ test("VSIX candidate filename is derived from manifest name and version only", (
     }),
     "sponzey-skills-manager-0.0.0-dev-local.vsix",
   );
+});
+
+test("VSIX packaging excludes dotenv files that may contain Marketplace credentials", async () => {
+  const ignoreEntries = (await readFile(".vscodeignore", "utf8"))
+    .split(/\r?\n/)
+    .map((entry) => entry.trim());
+
+  assert.ok(ignoreEntries.includes(".env"));
+  assert.ok(ignoreEntries.includes(".env.*"));
 });
