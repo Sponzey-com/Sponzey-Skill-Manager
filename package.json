@@ -2,7 +2,7 @@
   "name": "sponzey-skills-manager",
   "displayName": "Sponzey Skills Manager",
   "version": "0.1.0",
-  "publisher": "atomsoft",
+  "publisher": "Sponzey",
   "private": true,
   "type": "module",
   "description": "VSCode extension for managing Agent Skills repositories and targets.",
