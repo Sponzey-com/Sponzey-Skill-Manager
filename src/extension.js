@@ -576,6 +576,11 @@ function registerRefreshWatchers({
   });
 
   const disposables = [];
+  const shouldIgnoreWatcherEvent = (uri) =>
+    isInternalRepositoryMetadataPath({
+      eventPath: uri?.fsPath,
+      mainRepositoryPath: context.mainRepositoryPath,
+    });
   for (const watchPath of watchedPathsFromContext(context)) {
     let watcher;
     try {
@@ -598,6 +603,7 @@ function registerRefreshWatchers({
         type: "create",
         controller,
         logger,
+        shouldIgnore: shouldIgnoreWatcherEvent,
       }),
       registerWatcherEvent({
         watcher,
@@ -605,6 +611,7 @@ function registerRefreshWatchers({
         type: "change",
         controller,
         logger,
+        shouldIgnore: shouldIgnoreWatcherEvent,
       }),
       registerWatcherEvent({
         watcher,
@@ -612,6 +619,7 @@ function registerRefreshWatchers({
         type: "delete",
         controller,
         logger,
+        shouldIgnore: shouldIgnoreWatcherEvent,
       }),
     );
   }
@@ -619,18 +627,29 @@ function registerRefreshWatchers({
   return disposables.filter(Boolean);
 }
 
-function registerWatcherEvent({ watcher, eventName, type, controller, logger }) {
+function registerWatcherEvent({
+  watcher,
+  eventName,
+  type,
+  controller,
+  logger,
+  shouldIgnore,
+}) {
   if (typeof watcher?.[eventName] !== "function") {
     return null;
   }
 
   try {
-    return watcher[eventName]((uri) =>
-      controller.invalidate({
+    return watcher[eventName]((uri) => {
+      if (shouldIgnore?.(uri)) {
+        return;
+      }
+
+      return controller.invalidate({
         type,
         path: uri?.fsPath,
-      }),
-    );
+      });
+    });
   } catch {
     logWatcherRegistrationFailure({
       logger,
@@ -676,6 +695,24 @@ function normalizeWatchPath(value) {
   }
 
   return normalized;
+}
+
+function isInternalRepositoryMetadataPath({
+  eventPath,
+  mainRepositoryPath,
+}) {
+  const normalizedEventPath = normalizeWatchPath(eventPath);
+  const normalizedRepositoryPath = normalizeWatchPath(mainRepositoryPath);
+
+  if (!normalizedEventPath || !normalizedRepositoryPath) {
+    return false;
+  }
+
+  const metadataPath = `${normalizedRepositoryPath}/.sponzey`;
+  return (
+    normalizedEventPath === metadataPath ||
+    normalizedEventPath.startsWith(`${metadataPath}/`)
+  );
 }
 
 function watcherPattern({ vscodeApi, watchPath }) {

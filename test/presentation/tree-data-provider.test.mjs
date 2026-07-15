@@ -37,6 +37,45 @@ test("main repository tree provider loads source skill children", async () => {
     iconPath: { id: "repo" },
     contextValue: "sponzeySkillSource",
     collapsibleState: 0,
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
+  });
+});
+
+test("main repository tree items preserve the selected source payload", async () => {
+  const provider = createSkillsTreeDataProvider({
+    viewId: "sponzeySkills.mainRepository",
+    async loadReadModel() {
+      return {
+        ...sampleReadModel(),
+        mainRepositorySkills: [
+          {
+            id: "alpha",
+            name: "alpha",
+            status: "inactive",
+            sourcePath: "/repo/skills/alpha",
+          },
+          {
+            id: "beta",
+            name: "beta",
+            status: "inactive",
+            sourcePath: "/repo/skills/beta",
+          },
+        ],
+      };
+    },
+  });
+
+  const children = await provider.getChildren();
+  const selectedTreeItem = provider.getTreeItem(children[1]);
+
+  assert.deepEqual(selectedTreeItem.source, {
+    id: "beta",
+    name: "beta",
+    sourcePath: "/repo/skills/beta",
   });
 });
 
@@ -260,6 +299,11 @@ test("diagnostics tree provider preserves action payload and legacy context valu
     iconPath: { id: "warning" },
     contextValue: "sponzeyDiagnosticWithSource",
     collapsibleState: 0,
+    source: {
+      id: "alpha",
+      name: "alpha",
+      sourcePath: "/repo/skills/alpha",
+    },
   });
 });
 

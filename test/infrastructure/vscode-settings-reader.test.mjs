@@ -330,9 +330,17 @@ test("createVsCodeSettingsWriter adds and removes project target patterns", asyn
   assert.deepEqual(addResult, {
     ok: true,
     targetPattern: ".codex/skills",
+    targetPatterns: [".codex/skills"],
+    addedTargetPatterns: [".codex/skills"],
+    changed: true,
   });
-  assert.equal(duplicateResult.ok, false);
-  assert.equal(duplicateResult.error.code, "project-target-pattern-conflict");
+  assert.deepEqual(duplicateResult, {
+    ok: true,
+    targetPattern: ".codex/skills",
+    targetPatterns: [".codex/skills"],
+    addedTargetPatterns: [],
+    changed: false,
+  });
   assert.deepEqual(removeResult, {
     ok: true,
     removedTargetPattern: ".agents/skills",
@@ -376,6 +384,42 @@ test("createVsCodeSettingsWriter adds multiple project target patterns atomicall
     ok: true,
     targetPattern: ".agents/skills",
     targetPatterns: [".agents/skills", ".claude/skills"],
+    addedTargetPatterns: [".agents/skills", ".claude/skills"],
+    changed: true,
+  });
+  assert.deepEqual(calls, [
+    {
+      key: "projectTargetPatterns",
+      value: [".agents/skills", ".claude/skills"],
+      target: "global",
+    },
+  ]);
+});
+
+test("createVsCodeSettingsWriter merges existing and duplicate project target patterns", async () => {
+  const calls = [];
+  const workspace = fakeWorkspace({
+    settings: {
+      projectTargetPatterns: [".agents/skills"],
+    },
+    calls,
+  });
+  const writer = createVsCodeSettingsWriter({ workspace });
+
+  const result = await writer.addProjectTargetPatterns({
+    targetPatterns: [
+      ".agents/skills",
+      ".claude/skills",
+      ".claude/skills/",
+    ],
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    targetPattern: ".agents/skills",
+    targetPatterns: [".agents/skills", ".claude/skills"],
+    addedTargetPatterns: [".claude/skills"],
+    changed: true,
   });
   assert.deepEqual(calls, [
     {

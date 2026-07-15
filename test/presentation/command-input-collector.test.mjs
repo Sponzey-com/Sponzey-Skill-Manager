@@ -730,6 +730,43 @@ test("collectCommandInput preserves existing apply DTO without loading read mode
   });
 });
 
+test("collectCommandInput keeps the source selected from a tree item", async () => {
+  const calls = [];
+  const selectedSource = {
+    id: "beta",
+    name: "beta",
+    sourcePath: "/repo/skills/beta",
+  };
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.applySkillToGlobalTarget",
+    input: { source: selectedSource },
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "global:codex",
+          value: globalTarget(),
+        },
+        {
+          label: "copy",
+          value: "copy",
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return applyReadModel();
+    },
+  });
+
+  assert.deepEqual(
+    calls.map((call) => call.options.placeHolder),
+    ["Select global target", "Select apply mode"],
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.input.source, selectedSource);
+  assert.equal(result.input.source.name, "beta");
+});
+
 test("wrapCommandHandlersWithInputCollection does not call apply handler after source cancel", async () => {
   let handlerCalled = false;
   const handlers = wrapCommandHandlersWithInputCollection({

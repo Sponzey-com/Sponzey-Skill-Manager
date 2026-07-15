@@ -485,6 +485,18 @@ test("watcher refresh reports failed refresh result through watcher Product Log"
 
   assert.equal(activation.registeredWatcherCount, 4);
   const changeCallback = watcherCallbacks.find(([type]) => type === "change")[1];
+  changeCallback({ fsPath: "/repo/.sponzey/index.json" });
+  await delay(130);
+
+  assert.equal(
+    productEvents.some((event) => event.code === "watcher.refresh.failed"),
+    false,
+  );
+  assert.equal(
+    fieldDebugEvents.some((event) => event.code === "watcher.event.received"),
+    false,
+  );
+
   changeCallback({ fsPath: "/repo/skills/alpha/SKILL.md" });
   await delay(130);
 
@@ -618,6 +630,90 @@ test("settings recomposition restarts refresh watchers and disposes old watchers
     ["delete", "/repo-a/**/*"],
   ]);
   assert.equal(createdWatchers.at(-1).pattern, "/repo-b/**/*");
+});
+
+test("add all project repositories keeps the default Codex target and adds Claude", async () => {
+  const registeredCommands = [];
+  let projectTargetPatterns = [".agents/skills"];
+
+  await activate({ subscriptions: [] }, {
+    vscodeApi: {
+      ConfigurationTarget: {
+        Global: "global",
+      },
+      commands: {
+        registerCommand(commandId, handler) {
+          registeredCommands.push([commandId, handler]);
+          return { dispose() {} };
+        },
+      },
+      window: {
+        async showInputBox() {},
+        async showQuickPick(items) {
+          return items.find((item) => item.value === "all");
+        },
+        async showInformationMessage() {},
+        async showWarningMessage() {},
+        async showErrorMessage() {},
+      },
+      workspace: {
+        ConfigurationTarget: {
+          Global: "global",
+        },
+        workspaceFolders: [{ uri: { fsPath: "/workspace" } }],
+        getConfiguration(section) {
+          assert.equal(section, "sponzeySkills");
+          return {
+            get(key, defaultValue) {
+              if (key === "mainRepositoryPath") {
+                return "/repo";
+              }
+              if (key === "globalTargets") {
+                return [];
+              }
+              if (key === "projectTargetPatterns") {
+                return projectTargetPatterns;
+              }
+              return defaultValue;
+            },
+            async update(key, value, target) {
+              assert.equal(target, "global");
+              if (key === "projectTargetPatterns") {
+                projectTargetPatterns = value;
+              }
+            },
+          };
+        },
+      },
+    },
+    adapters: {
+      skillRepository: {
+        async scanSourceSkills() {
+          return { ok: true, sources: [] };
+        },
+      },
+      targetStore: {
+        async scanAppliedSkills() {
+          return { ok: true, appliedSkills: [], diagnostics: [] };
+        },
+      },
+    },
+  });
+
+  const addHandler = registeredCommands.find(
+    ([commandId]) => commandId === "sponzeySkills.addProjectRepository",
+  )[1];
+  const result = await addHandler();
+
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(projectTargetPatterns, [
+    ".agents/skills",
+    ".claude/skills",
+  ]);
+  assert.deepEqual(result.targetPatterns, [
+    ".agents/skills",
+    ".claude/skills",
+  ]);
 });
 
 test("activation dedupes normalized refresh watcher paths", async () => {

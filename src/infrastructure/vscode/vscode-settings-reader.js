@@ -213,27 +213,31 @@ export function createVsCodeSettingsWriter({
         const configuration = workspace.getConfiguration("sponzeySkills");
         const patterns = configuration.get("projectTargetPatterns", []);
         const normalizedPattern = normalizeRelativePattern(targetPattern);
+        const currentPatterns = uniqueNormalizedPatterns(patterns);
 
-        if (patterns.includes(normalizedPattern)) {
+        if (currentPatterns.includes(normalizedPattern)) {
           return {
-            ok: false,
-            error: {
-              code: "project-target-pattern-conflict",
-              severity: "error",
-              message: "Project repository pattern already exists.",
-            },
+            ok: true,
+            targetPattern: normalizedPattern,
+            targetPatterns: [normalizedPattern],
+            addedTargetPatterns: [],
+            changed: false,
           };
         }
 
+        const nextPatterns = [...currentPatterns, normalizedPattern];
         await configuration.update(
           "projectTargetPatterns",
-          [...patterns, normalizedPattern],
+          nextPatterns,
           ConfigurationTarget?.Global ?? true,
         );
 
         return {
           ok: true,
           targetPattern: normalizedPattern,
+          targetPatterns: [normalizedPattern],
+          addedTargetPatterns: [normalizedPattern],
+          changed: true,
         };
       } catch (error) {
         return settingsWriteFailed(
@@ -246,35 +250,27 @@ export function createVsCodeSettingsWriter({
       try {
         const configuration = workspace.getConfiguration("sponzeySkills");
         const patterns = configuration.get("projectTargetPatterns", []);
-        const normalizedPatterns = (targetPatterns ?? []).map(
-          normalizeRelativePattern,
+        const currentPatterns = uniqueNormalizedPatterns(patterns);
+        const normalizedPatterns = uniqueNormalizedPatterns(targetPatterns);
+        const currentPatternSet = new Set(currentPatterns);
+        const addedTargetPatterns = normalizedPatterns.filter(
+          (targetPattern) => !currentPatternSet.has(targetPattern),
         );
-        const seen = new Set();
 
-        for (const targetPattern of normalizedPatterns) {
-          if (seen.has(targetPattern) || patterns.includes(targetPattern)) {
-            return {
-              ok: false,
-              error: {
-                code: "project-target-pattern-conflict",
-                severity: "error",
-                message: "Project repository pattern already exists.",
-              },
-            };
-          }
-          seen.add(targetPattern);
+        if (addedTargetPatterns.length > 0) {
+          await configuration.update(
+            "projectTargetPatterns",
+            [...currentPatterns, ...addedTargetPatterns],
+            ConfigurationTarget?.Global ?? true,
+          );
         }
-
-        await configuration.update(
-          "projectTargetPatterns",
-          [...patterns, ...normalizedPatterns],
-          ConfigurationTarget?.Global ?? true,
-        );
 
         return {
           ok: true,
           targetPattern: normalizedPatterns[0],
           targetPatterns: normalizedPatterns,
+          addedTargetPatterns,
+          changed: addedTargetPatterns.length > 0,
         };
       } catch (error) {
         return settingsWriteFailed(
@@ -424,4 +420,8 @@ function errorMessage(error) {
   }
 
   return "";
+}
+
+function uniqueNormalizedPatterns(patterns) {
+  return [...new Set((patterns ?? []).map(normalizeRelativePattern))];
 }
