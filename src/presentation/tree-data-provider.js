@@ -85,6 +85,14 @@ export function createSkillsTreeDataProvider({
         treeItem.source = element.source;
       }
 
+      if (element.target) {
+        treeItem.target = element.target;
+      }
+
+      if (element.appliedSkill) {
+        treeItem.appliedSkill = element.appliedSkill;
+      }
+
       if (element.iconId) {
         treeItem.iconPath = themeIconFactory(element.iconId);
       }

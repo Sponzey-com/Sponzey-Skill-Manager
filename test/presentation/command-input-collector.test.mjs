@@ -309,6 +309,10 @@ test("collectCommandInput prompts remove global repository target", async () => 
             targetId: "global:codex:/global/codex",
           },
         },
+        {
+          label: "Unregister global repository (keep skills on disk)",
+          value: true,
+        },
       ],
     }),
     async loadReadModel() {
@@ -326,11 +330,12 @@ test("collectCommandInput prompts remove global repository target", async () => 
     },
   });
 
-  assert.deepEqual(calls.map((call) => call.kind), ["quickPick"]);
+  assert.deepEqual(calls.map((call) => call.kind), ["quickPick", "quickPick"]);
   assert.deepEqual(result, {
     ok: true,
     input: {
       targetId: "global:codex:/global/codex",
+      confirmationProvided: true,
     },
   });
 });
@@ -363,6 +368,10 @@ test("collectCommandInput prompts add and remove project repository patterns", a
             targetPattern: ".agents/skills",
           },
         },
+        {
+          label: "Unregister project repository (keep skills on disk)",
+          value: true,
+        },
       ],
     }),
     async loadReadModel() {
@@ -388,7 +397,10 @@ test("collectCommandInput prompts add and remove project repository patterns", a
       targetPatterns: [".agents/skills", ".claude/skills"],
     },
   });
-  assert.deepEqual(removeCalls.map((call) => call.kind), ["quickPick"]);
+  assert.deepEqual(removeCalls.map((call) => call.kind), [
+    "quickPick",
+    "quickPick",
+  ]);
   assert.deepEqual(removeCalls[0].items, [
     {
       label: ".agents/skills",
@@ -402,6 +414,7 @@ test("collectCommandInput prompts add and remove project repository patterns", a
     ok: true,
     input: {
       targetPattern: ".agents/skills",
+      confirmationProvided: true,
     },
   });
 });

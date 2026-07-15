@@ -121,6 +121,21 @@ test("global skills tree provider returns applied skills with agent badges", asy
         iconPath: { id: "agent-codex" },
         contextValue: "sponzeyAppliedSkill",
         collapsibleState: 0,
+        target: {
+          id: "global:codex",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/global",
+          workspacePath: undefined,
+          targetPattern: undefined,
+        },
+        appliedSkill: {
+          name: "alpha",
+          kind: "managed-copy",
+          status: undefined,
+          targetPath: "/target/alpha",
+          sourceId: "alpha",
+        },
       },
     ],
   );

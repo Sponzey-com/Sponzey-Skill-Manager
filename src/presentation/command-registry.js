@@ -1,10 +1,19 @@
 export const SPONZEY_COMMANDS = Object.freeze([
   command("sponzeySkills.setMainRepository", "Sponzey Skills: Set Main Repository"),
-  command("sponzeySkills.removeMainRepository", "Sponzey Skills: Remove Main Repository"),
+  command(
+    "sponzeySkills.removeMainRepository",
+    "Sponzey Skills: Unregister Main Repository (Keep Skills)",
+  ),
   command("sponzeySkills.addGlobalRepository", "Sponzey Skills: Add Global Repository"),
-  command("sponzeySkills.removeGlobalRepository", "Sponzey Skills: Remove Global Repository"),
+  command(
+    "sponzeySkills.removeGlobalRepository",
+    "Sponzey Skills: Unregister Global Repository (Keep Skills)",
+  ),
   command("sponzeySkills.addProjectRepository", "Sponzey Skills: Add Project Repository"),
-  command("sponzeySkills.removeProjectRepository", "Sponzey Skills: Remove Project Repository"),
+  command(
+    "sponzeySkills.removeProjectRepository",
+    "Sponzey Skills: Unregister Project Repository (Keep Skills)",
+  ),
   command("sponzeySkills.openMainRepository", "Sponzey Skills: Open Main Repository"),
   command("sponzeySkills.openSourceFolder", "Sponzey Skills: Open Source Folder"),
   command("sponzeySkills.openTargetFolder", "Sponzey Skills: Open Target Folder"),

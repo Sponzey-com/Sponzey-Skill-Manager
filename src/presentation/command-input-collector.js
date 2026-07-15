@@ -472,37 +472,34 @@ async function collectRemoveGlobalRepositoryInput({
 }) {
   const nextInput = { ...input };
 
-  if (hasText(nextInput.targetId)) {
-    return {
-      ok: true,
-      input: nextInput,
-    };
+  if (!hasText(nextInput.targetId)) {
+    const readModel = await loadApplyReadModel({ commandId, loadReadModel });
+
+    if (readModel?.ok === false) {
+      return readModel;
+    }
+
+    const targetChoice = await chooseRequiredQuickPick({
+      commandId,
+      window,
+      items: globalRepositoryChoices(readModel.value),
+      placeHolder: "Select global repository to unregister",
+      unavailableMessage: "No global repositories are available.",
+    });
+
+    if (!targetChoice.ok) {
+      return targetChoice;
+    }
+
+    nextInput.targetId = targetChoice.choice.value.targetId;
   }
 
-  const readModel = await loadApplyReadModel({ commandId, loadReadModel });
-
-  if (readModel?.ok === false) {
-    return readModel;
-  }
-
-  const targetChoice = await chooseRequiredQuickPick({
+  return confirmRepositoryUnregister({
     commandId,
-    window,
-    items: globalRepositoryChoices(readModel.value),
-    placeHolder: "Select global repository to remove",
-    unavailableMessage: "No global repositories are available.",
-  });
-
-  if (!targetChoice.ok) {
-    return targetChoice;
-  }
-
-  nextInput.targetId = targetChoice.choice.value.targetId;
-
-  return {
-    ok: true,
     input: nextInput,
-  };
+    window,
+    repositoryScope: "global",
+  });
 }
 
 async function collectAddProjectRepositoryInput({ commandId, input, window }) {
@@ -579,36 +576,69 @@ async function collectRemoveProjectRepositoryInput({
 }) {
   const nextInput = { ...input };
 
-  if (hasText(nextInput.targetPattern)) {
+  if (!hasText(nextInput.targetPattern)) {
+    const readModel = await loadApplyReadModel({ commandId, loadReadModel });
+
+    if (readModel?.ok === false) {
+      return readModel;
+    }
+
+    const targetChoice = await chooseRequiredQuickPick({
+      commandId,
+      window,
+      items: projectRepositoryChoices(readModel.value),
+      placeHolder: "Select project repository pattern to unregister",
+      unavailableMessage: "No project repositories are available.",
+    });
+
+    if (!targetChoice.ok) {
+      return targetChoice;
+    }
+
+    nextInput.targetPattern = targetChoice.choice.value.targetPattern;
+  }
+
+  return confirmRepositoryUnregister({
+    commandId,
+    input: nextInput,
+    window,
+    repositoryScope: "project",
+  });
+}
+
+async function confirmRepositoryUnregister({
+  commandId,
+  input,
+  window,
+  repositoryScope,
+}) {
+  if (input.confirmationProvided === true) {
     return {
       ok: true,
-      input: nextInput,
+      input,
     };
   }
 
-  const readModel = await loadApplyReadModel({ commandId, loadReadModel });
-
-  if (readModel?.ok === false) {
-    return readModel;
-  }
-
-  const targetChoice = await chooseRequiredQuickPick({
-    commandId,
+  const choice = await showQuickPick({
     window,
-    items: projectRepositoryChoices(readModel.value),
-    placeHolder: "Select project repository pattern to remove",
-    unavailableMessage: "No project repositories are available.",
+    items: [
+      {
+        label: `Unregister ${repositoryScope} repository (keep skills on disk)`,
+        value: true,
+      },
+      { label: "Cancel", value: false },
+    ],
+    placeHolder: `Unregister this ${repositoryScope} repository? Skills will remain on disk.`,
   });
 
-  if (!targetChoice.ok) {
-    return targetChoice;
+  if (choice === undefined || choice.value !== true) {
+    return cancelled(commandId);
   }
 
-  nextInput.targetPattern = targetChoice.choice.value.targetPattern;
-
+  input.confirmationProvided = true;
   return {
     ok: true,
-    input: nextInput,
+    input,
   };
 }
 
