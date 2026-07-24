@@ -505,7 +505,8 @@
         "sponzeySkills.enabledClients": {
           "type": "array",
           "default": [
-            "codex"
+            "codex",
+            "claude"
           ],
           "items": {
             "type": "string"
@@ -524,7 +525,8 @@
         "sponzeySkills.projectTargetPatterns": {
           "type": "array",
           "default": [
-            ".agents/skills"
+            ".agents/skills",
+            ".claude/skills"
           ],
           "items": {
             "type": "string"

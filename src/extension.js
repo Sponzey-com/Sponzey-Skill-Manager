@@ -38,15 +38,25 @@ export async function activate(context, runtime = {}) {
   const defaultMainRepositoryPath =
     runtime.defaultMainRepositoryPath ?? createDefaultMainRepositoryPath();
   const defaultGlobalTargets =
-    runtime.defaultGlobalTargets ?? createDefaultGlobalTargets();
+    runtime.defaultGlobalTargets ??
+    (runtime.settingsReader || runtime.adapters?.targetStore
+      ? []
+      : createDefaultGlobalTargets());
   const composition = await createComposition({
     runtime,
     vscodeApi,
     adapters,
+    standardGlobalTargets: defaultGlobalTargets,
   });
   const runtimeSession = createRuntimeSession({
     initialComposition: composition,
-    compose: () => createComposition({ runtime, vscodeApi, adapters }),
+    compose: () =>
+      createComposition({
+        runtime,
+        vscodeApi,
+        adapters,
+        standardGlobalTargets: defaultGlobalTargets,
+      }),
   });
   const handlers =
     composition?.commandHandlers
@@ -1218,7 +1228,12 @@ function emptyReadModel({ diagnostics = [] } = {}) {
   };
 }
 
-async function createComposition({ runtime, vscodeApi, adapters }) {
+async function createComposition({
+  runtime,
+  vscodeApi,
+  adapters,
+  standardGlobalTargets = [],
+}) {
   if (runtime.composition) {
     return runtime.composition;
   }
@@ -1240,6 +1255,7 @@ async function createComposition({ runtime, vscodeApi, adapters }) {
       (vscodeApi?.workspace
         ? readVsCodeWorkspaceRoots(vscodeApi.workspace)
         : []),
+    standardGlobalTargets,
     adapters,
     analyzer: runtime.analyzer,
   });

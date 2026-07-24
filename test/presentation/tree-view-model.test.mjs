@@ -455,6 +455,46 @@ test("mapSkillsReadModelToTreeItems uses agent badges for Claude targets", () =>
   );
 });
 
+test("partial target failure keeps readable skill and shows beginner action in diagnostics", () => {
+  const tree = mapSkillsReadModelToTreeItems({
+    mainRepositorySkills: [],
+    globalSkills: [
+      {
+        targetId: "global:claude",
+        clientType: "claude",
+        scope: "global",
+        targetPath: "/home/test/.claude/skills",
+        skills: [
+          {
+            name: "existing",
+            kind: "external",
+            status: "external",
+            targetPath: "/home/test/.claude/skills/existing",
+            sourceId: null,
+          },
+        ],
+      },
+    ],
+    projectSkills: [],
+    diagnostics: [
+      {
+        code: "target-unavailable",
+        severity: "warning",
+        category: "target",
+        message: "Existing skills could not be read from this target.",
+        recommendation: "Check the target permissions, then refresh.",
+        targetId: "global:codex",
+        targetPath: "/home/test/.agents/skills",
+      },
+    ],
+  });
+
+  assert.equal(tree[1].children[0].label, "existing");
+  const diagnostic = tree[3].children[0].children[0].children[0];
+  assert.match(diagnostic.detail, /Next: Check the target permissions/);
+  assert.equal(diagnostic.diagnostic.targetPath, "/home/test/.agents/skills");
+});
+
 test("package contributes expected tree item context menus", async () => {
   const packageJson = JSON.parse(await readFile("package.json", "utf8"));
   const menuCommands = packageJson.contributes.menus["view/item/context"].map(

@@ -41,7 +41,7 @@ test("createVsCodeSettingsReader reads sponzeySkills configuration with defaults
 
   assert.deepEqual(settings, {
     mainRepositoryPath: "/repo",
-    enabledClients: ["codex"],
+    enabledClients: ["codex", "claude"],
     globalTargets: [
       {
         id: "global:codex",
@@ -50,7 +50,7 @@ test("createVsCodeSettingsReader reads sponzeySkills configuration with defaults
         targetPath: "/global",
       },
     ],
-    projectTargetPatterns: [".agents/skills"],
+    projectTargetPatterns: [".agents/skills", ".claude/skills"],
     defaultApplyMode: "copy",
     riskPolicy: {},
     backupPolicy: {},

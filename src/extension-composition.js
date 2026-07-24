@@ -49,12 +49,14 @@ import { createUseCaseCommandHandlers } from "./presentation/index.js";
 export async function createExtensionComposition({
   settingsReader,
   workspaceRoots = [],
+  standardGlobalTargets = [],
   adapters = {},
   analyzer = null,
 }) {
   const runtimeContextResult = await buildRuntimeContext({
     settingsReader,
     workspaceRoots,
+    standardGlobalTargets,
   });
 
   if (!runtimeContextResult.ok) {

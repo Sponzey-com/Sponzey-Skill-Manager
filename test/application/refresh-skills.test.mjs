@@ -741,6 +741,7 @@ test("refreshSkills aggregates managed, external, and broken target read models"
       code: "target.scan.completed",
       targetId: "global:codex",
       scope: "global",
+      state: "Completed",
       appliedSkillCount: 3,
       diagnosticCount: 0,
     },
@@ -749,6 +750,7 @@ test("refreshSkills aggregates managed, external, and broken target read models"
       code: "target.scan.completed",
       targetId: "project:/workspace:.agents/skills",
       scope: "project",
+      state: "CompletedWithDiagnostics",
       appliedSkillCount: 1,
       diagnosticCount: 1,
     },
@@ -966,6 +968,139 @@ test("refreshSkills converts source scan failure into diagnostic and product eve
     ],
     steps: ["LoadingSources", "SourceScanFailed"],
   });
+});
+
+test("refreshSkills preserves a successful Claude target when the Codex target is unavailable", async () => {
+  const result = await refreshSkills({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [
+        {
+          id: "global:codex",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/codex",
+        },
+        {
+          id: "global:claude",
+          clientType: "claude",
+          scope: "global",
+          targetPath: "/claude",
+        },
+      ],
+      projectTargets: [],
+    },
+    skillRepository: {
+      async scanSourceSkills() {
+        return { ok: true, sources: [] };
+      },
+    },
+    targetStore: {
+      async scanAppliedSkills({ targetPath }) {
+        if (targetPath === "/codex") {
+          return {
+            ok: false,
+            error: {
+              code: "filesystem-operation-failed",
+              severity: "error",
+              message: "Target cannot be read.",
+            },
+          };
+        }
+        return {
+          ok: true,
+          appliedSkills: [
+            {
+              name: "claude-existing",
+              kind: "external",
+              targetPath: "/claude/claude-existing",
+            },
+          ],
+          diagnostics: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.readModel.globalSkills.map((group) => [
+      group.clientType,
+      group.skills.map((skill) => skill.name),
+    ]),
+    [
+      ["codex", []],
+      ["claude", ["claude-existing"]],
+    ],
+  );
+  assert.equal(result.readModel.diagnostics[0].code, "target-unavailable");
+  assert.equal(result.readModel.diagnostics[0].targetId, "global:codex");
+  assert.equal(
+    result.events.some((event) => event.code === "target.scan.unavailable"),
+    true,
+  );
+  assert.equal(result.steps.includes("TargetScanFailed"), false);
+});
+
+test("refreshSkills keeps duplicate same-client target skills and reports their conflict", async () => {
+  const result = await refreshSkills({
+    context: {
+      mainRepositoryPath: "/repo",
+      globalTargets: [
+        {
+          id: "global:codex:standard",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/standard",
+        },
+        {
+          id: "global:codex:configured",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/configured",
+        },
+      ],
+      projectTargets: [],
+    },
+    skillRepository: {
+      async scanSourceSkills() {
+        return { ok: true, sources: [] };
+      },
+    },
+    targetStore: {
+      async scanAppliedSkills({ targetPath }) {
+        return {
+          ok: true,
+          appliedSkills: [
+            {
+              name: "shared",
+              kind: "external",
+              targetPath: `${targetPath}/shared`,
+            },
+          ],
+          diagnostics: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.readModel.globalSkills.length, 2);
+  assert.equal(
+    result.readModel.globalSkills.every(
+      (group) => group.skills[0].name === "shared",
+    ),
+    true,
+  );
+  assert.equal(
+    result.readModel.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "duplicate-target-skill" &&
+        diagnostic.clientType === "codex" &&
+        diagnostic.skillName === "shared",
+    ),
+    true,
+  );
 });
 
 function source(name, sourcePath) {

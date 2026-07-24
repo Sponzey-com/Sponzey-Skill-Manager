@@ -3170,7 +3170,7 @@ test("apply global command collects missing input from VSCode window", async () 
   ]);
 });
 
-test("apply global command creates default global target when none is configured", async () => {
+test("apply global command uses standard global target without persisting it as configured", async () => {
   const registeredCommands = [];
   const quickPickCalls = [];
   const copyCalls = [];
@@ -3293,14 +3293,7 @@ test("apply global command creates default global target when none is configured
   const result = await applyHandler();
 
   assert.equal(result.ok, true);
-  assert.deepEqual(globalTargets, [
-    {
-      id: "global:codex:/home/test/.agents/skills",
-      clientType: "codex",
-      scope: "global",
-      targetPath: "/home/test/.agents/skills",
-    },
-  ]);
+  assert.deepEqual(globalTargets, []);
   assert.deepEqual(
     quickPickCalls.map((call) => call.options.placeHolder),
     ["Select source skill", "Select global target", "Select apply mode"],

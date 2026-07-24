@@ -5,10 +5,14 @@ export function createVsCodeSettingsReader({ workspace }) {
 
       return {
         mainRepositoryPath: configuration.get("mainRepositoryPath", ""),
-        enabledClients: configuration.get("enabledClients", ["codex"]),
+        enabledClients: configuration.get("enabledClients", [
+          "codex",
+          "claude",
+        ]),
         globalTargets: configuration.get("globalTargets", []),
         projectTargetPatterns: configuration.get("projectTargetPatterns", [
           ".agents/skills",
+          ".claude/skills",
         ]),
         defaultApplyMode: configuration.get("defaultApplyMode", "copy"),
         riskPolicy: configuration.get("riskPolicy", {}),

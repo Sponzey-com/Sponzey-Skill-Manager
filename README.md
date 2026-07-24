@@ -8,6 +8,8 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 - Main Repository is a source repository, not a Global Target.
 - Global Targets and Project Targets are where agent clients read applied skills.
 - Repository registration supports Codex, Claude, or all supported agent clients.
+- Existing skills are discovered from Codex `$HOME/.agents/skills` and Claude `$HOME/.claude/skills` by default.
+- Workspace skills are discovered from `.agents/skills` and `.claude/skills` for enabled clients.
 - Applied Global and Project skill rows show an agent badge icon for Codex or Claude.
 - Project Skills are shown when VSCode has a folder or workspace open, and hidden for file-only windows.
 - Applied skills can be managed copies, managed symlinks, external folders, external symlinks, or broken symlinks.
@@ -35,7 +37,7 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 ## Apply And Remove
 
 - Use `Sponzey Skills: Apply Skill to Global Target` to apply a source skill to a global target.
-- If no global target is configured, the extension registers `~/.agents/skills` as the default Codex global target before applying.
+- Standard Codex and Claude global targets are available without persisting duplicate target settings.
 - Use `Sponzey Skills: Apply Skill to Project Target` to apply a source skill to a workspace project target.
 - Applied Global and Project skill rows show a Codex or Claude badge and avoid grouping skills under repository folder nodes.
 - Use `Sponzey Skills: Remove Applied Skill` to remove the applied target entry without deleting the source.
@@ -58,7 +60,9 @@ Sponzey Skills Manager is a VSCode extension for managing Agent Skills as explic
 
 - If `code` is not available, install the VSCode shell command or run scripts with `CODE_BIN=/path/to/code`.
 - If the Main Repository is missing, the extension recreates `~/SponzeySkills` on the next command that needs a source repository.
-- If no global target is configured, applying to a global target registers `~/.agents/skills` automatically.
+- Missing standard target directories are treated as empty; they do not prevent the other client from loading.
+- An unreadable target or damaged entry appears in Diagnostics while readable skills remain visible. Check the target permission or broken link and refresh.
+- `$HOME/.codex/skills` is not added automatically. When explicitly registered for migration, it is discovery/copy/backup-only and is excluded from apply, remove, move, and restore target choices.
 - If a newly applied Codex global skill does not appear in another Codex instance, restart Codex or start a new Codex session so it rescans `$HOME/.agents/skills`.
 - If a newly applied Claude global skill does not appear in another Claude session, restart Claude or start a new Claude session so it rescans `$HOME/.claude/skills`.
 - If the Main Repository is invalid, run `Sponzey Skills: Set Main Repository` and choose a valid source repository path.

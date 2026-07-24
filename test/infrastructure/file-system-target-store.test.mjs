@@ -134,6 +134,56 @@ test("scanAppliedSkills returns invalid managed metadata diagnostic", async () =
   ]);
 });
 
+test("scanAppliedSkills isolates one entry lstat failure and keeps readable skills", async () => {
+  const rootPath = await createTempPath("ssm-target-entry-failure-");
+  const targetPath = path.join(rootPath, "target");
+  await createTargetSkill(path.join(targetPath, "readable"), {});
+  await createTargetSkill(path.join(targetPath, "unreadable"), {});
+
+  const store = new FileSystemTargetStore({
+    fileSystem: {
+      async lstat(entryPath) {
+        if (entryPath.endsWith("/unreadable")) {
+          const error = new Error("denied");
+          error.code = "EACCES";
+          throw error;
+        }
+        return lstat(entryPath);
+      },
+    },
+  });
+  const result = await store.scanAppliedSkills({
+    targetPath,
+    knownSourcePaths: [],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.appliedSkills.map((skill) => skill.name),
+    ["readable"],
+  );
+  assert.equal(result.diagnostics[0].code, "target-entry-unreadable");
+  assert.equal(result.diagnostics[0].skillName, "unreadable");
+});
+
+test("scanAppliedSkills ignores resolved symlink without SKILL.md", async () => {
+  const rootPath = await createTempPath("ssm-target-non-skill-link-");
+  const targetPath = path.join(rootPath, "target");
+  const nonSkillPath = path.join(rootPath, "ordinary-directory");
+  await mkdir(targetPath, { recursive: true });
+  await mkdir(nonSkillPath, { recursive: true });
+  await symlink(nonSkillPath, path.join(targetPath, "not-a-skill"));
+
+  const result = await new FileSystemTargetStore().scanAppliedSkills({
+    targetPath,
+    knownSourcePaths: [],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.appliedSkills, []);
+  assert.equal(result.diagnostics[0].code, "symlink-skill-file-missing");
+});
+
 test("copySkillToTarget copies source directory and writes managed metadata", async () => {
   const rootPath = await createTempPath("ssm-target-copy-");
   const sourcePath = path.join(rootPath, "main", "skills", "copy-source");

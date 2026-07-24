@@ -180,7 +180,7 @@ function sourceFromSkill(skill) {
 }
 
 function targetFromGroup(group) {
-  return {
+  const target = {
     id: group.targetId,
     clientType: group.clientType,
     scope: group.scope,
@@ -188,6 +188,15 @@ function targetFromGroup(group) {
     workspacePath: group.workspacePath,
     targetPattern: group.targetPattern,
   };
+
+  if (group.origin !== undefined) {
+    target.origin = group.origin;
+  }
+  if (group.capabilities !== undefined) {
+    target.capabilities = group.capabilities;
+  }
+
+  return target;
 }
 
 function appliedSkillFromSkill(skill) {
@@ -338,13 +347,21 @@ function diagnosticItem({ diagnostic, index, severity, category, sourceById }) {
     id: `diagnostic:${severity}:${category}:${diagnostic.code}:${index}`,
     label: diagnostic.code,
     description: diagnosticDescription(diagnostic),
-    detail: diagnostic.message,
+    detail: diagnosticDetail(diagnostic),
     iconId: iconIdForDiagnostic(diagnostic),
     contextValue: source ? "sponzeyDiagnosticWithSource" : "sponzeyDiagnostic",
     source,
     diagnostic: diagnosticFromReadModel(diagnostic),
     diagnosticActions: diagnosticActionsFromReadModel(diagnostic),
   });
+}
+
+function diagnosticDetail(diagnostic) {
+  if (typeof diagnostic.recommendation !== "string") {
+    return diagnostic.message;
+  }
+
+  return `${diagnostic.message} Next: ${diagnostic.recommendation}`;
 }
 
 function severityKeys(entries) {

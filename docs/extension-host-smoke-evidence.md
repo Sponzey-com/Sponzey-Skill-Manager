@@ -4,11 +4,11 @@
 
 ## 1. 검증 세션
 
-- 날짜:
-- 검증자:
-- 상태: pending
-- 결과: pending
-- 범위: Phase 004 local release candidate
+- 날짜: 2026-07-24
+- 검증자: Codex (자동 검증 및 Extension Development Host 화면 확인)
+- 상태: completed
+- 결과: pass
+- 범위: 기존 Codex·Claude 스킬 발견과 부분 실패 회귀
 
 허용 상태 값:
 
@@ -18,12 +18,12 @@
 
 ## 2. 환경
 
-- 운영체제:
-- VSCode version:
-- Extension Development Host 실행 명령:
-- 사용한 Main Repository path:
-- Workspace mode: folder, multi-root, file-only 중 하나
-- 확인한 agent client: Codex, Claude, custom, none 중 하나
+- 운영체제: macOS arm64
+- VSCode version: 1.130.0
+- Extension Development Host 실행 명령: `scripts/run-vscode-extension-host.sh <masked-fixture-workspace>`
+- 사용한 Main Repository path: `/tmp` 아래 격리 fixture
+- Workspace mode: folder
+- 확인한 agent client: Codex, Claude
 
 Path 기록 규칙:
 
@@ -57,17 +57,18 @@ scripts/run-vscode-extension-host.sh
 
 ## 4. 체크리스트 결과 요약
 
-- 자동 검증:
-- 확장 개발 호스트:
-- 리포지토리 설정:
+- 자동 검증: pass (`npm test`, architecture, manifest, build)
+- 확장 개발 호스트: pass
+- 리포지토리 설정: pass
 - 리포지토리 인덱스와 버전 관리:
 - Main Repository 스킬 생명주기:
-- Global 및 Project 적용:
-- Diagnostics와 Analysis:
+- Global 및 Project 적용: pass (두 client의 기존 global/project fixture 표시)
+- Diagnostics와 Analysis: pass (broken symlink와 잘못된 metadata가 정상 항목과 함께 유지)
 - 백업 전송과 안전성:
 - Diagnostics Remediation Workflow:
 - Watcher Refresh와 Runtime Recomposition:
-- 문서와 Release Gate:
+- Existing Skill Discovery와 Partial Failure: pass
+- 문서와 Release Gate: pass
 
 사용할 결과 값:
 
@@ -94,22 +95,25 @@ scripts/run-vscode-extension-host.sh
 
 완료한 확인 항목의 간단한 증거를 기록한다.
 
-- Activity Bar와 view visibility:
+- Activity Bar와 view visibility: Sponzey Skills의 네 view가 Extension Host에 표시됨.
 - Main Repository setup:
-- Apply/remove behavior:
-- Diagnostics and remediation behavior:
+- Apply/remove behavior: capability 명령 후보는 자동 Presentation 테스트로 검증함.
+- Diagnostics and remediation behavior: warning group과 손상 항목을 확인했고, 다음 행동 문구는 tree model 테스트로 검증함.
 - Backup compare/restore/delete behavior:
 - Runtime refresh behavior:
-- Release gate output:
+- Existing skill discovery: 격리 fixture에서 Codex·Claude global 및 project 스킬과 각 client 배지를 동시에 확인함.
+- Partial failure behavior: broken symlink와 잘못된 metadata가 있어도 정상 Codex·Claude 스킬이 유지되는 것을 확인함. target root 실패는 Application 부분 성공 테스트로 검증함.
+- Compatibility behavior: 명시적으로 등록한 `.codex/skills`의 discovery-only capability와 apply/remove/move/restore 후보 제외를 자동 테스트로 검증함.
+- Release gate output: 이 변경의 필수 자동 명령은 모두 통과함.
 
 Screenshot은 private path, secret, token, user file content를 노출하지 않을 때만 파일명으로 참조한다.
 
 ## 7. 릴리스 판단
 
-- 판단: pending
-- release candidate 전 필수 후속 작업:
-- 연기 항목:
-- 검증자 메모:
+- 판단: ready
+- release candidate 전 필수 후속 작업: 없음
+- 연기 항목: 없음
+- 검증자 메모: 실제 사용자 스킬 경로는 수정하지 않았으며 수동 fixture는 `/tmp`에 격리했다.
 
 허용 판단 값:
 

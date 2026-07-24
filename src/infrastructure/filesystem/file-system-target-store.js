@@ -19,6 +19,16 @@ const APPLIED_METADATA_FILE = ".sponzey-applied.json";
 const BACKUP_METADATA_FILE = ".sponzey-backup.json";
 
 export class FileSystemTargetStore {
+  constructor({ fileSystem = {} } = {}) {
+    this.scanFileSystem = {
+      access: fileSystem.access ?? access,
+      lstat: fileSystem.lstat ?? lstat,
+      readFile: fileSystem.readFile ?? readFile,
+      readdir: fileSystem.readdir ?? readdir,
+      realpath: fileSystem.realpath ?? realpath,
+    };
+  }
+
   async linkSkillToTarget({ sourcePath, targetRootPath, skillName }) {
     const destinationResult = resolveTargetDestination({
       targetRootPath,
@@ -234,8 +244,14 @@ export class FileSystemTargetStore {
 
   async scanAppliedSkills({ targetPath, knownSourcePaths = [] }) {
     return withFileSystemResult(async () => {
-      const knownSourceSet = await createKnownSourceSet(knownSourcePaths);
-      const entries = await readOptionalDirectoryEntries(targetPath);
+      const knownSourceSet = await createKnownSourceSet(
+        knownSourcePaths,
+        this.scanFileSystem,
+      );
+      const entries = await readOptionalDirectoryEntries(
+        targetPath,
+        this.scanFileSystem,
+      );
       entries.sort((left, right) => left.name.localeCompare(right.name));
 
       const appliedSkills = [];
@@ -243,17 +259,32 @@ export class FileSystemTargetStore {
 
       for (const entry of entries) {
         const entryPath = path.join(targetPath, entry.name);
-        const stats = await lstat(entryPath);
+        let stats;
+        try {
+          stats = await this.scanFileSystem.lstat(entryPath);
+        } catch (error) {
+          diagnostics.push({
+            code: "target-entry-unreadable",
+            severity: "warning",
+            riskLevel: "low",
+            message: "A target entry could not be inspected.",
+            skillName: entry.name,
+            cause: error?.code,
+          });
+          continue;
+        }
 
         if (stats.isSymbolicLink()) {
-          appliedSkills.push(
-            await classifySymlink({
-              name: entry.name,
-              entryPath,
-              knownSourceSet,
-              diagnostics,
-            }),
-          );
+          const skill = await classifySymlink({
+            name: entry.name,
+            entryPath,
+            knownSourceSet,
+            diagnostics,
+            fileSystem: this.scanFileSystem,
+          });
+          if (skill) {
+            appliedSkills.push(skill);
+          }
           continue;
         }
 
@@ -261,7 +292,10 @@ export class FileSystemTargetStore {
           continue;
         }
 
-        const hasSkillMd = await canAccess(path.join(entryPath, "SKILL.md"));
+        const hasSkillMd = await canAccess(
+          path.join(entryPath, "SKILL.md"),
+          this.scanFileSystem,
+        );
         if (!hasSkillMd) {
           continue;
         }
@@ -271,6 +305,7 @@ export class FileSystemTargetStore {
             name: entry.name,
             entryPath,
             diagnostics,
+            fileSystem: this.scanFileSystem,
           }),
         );
       }
@@ -321,12 +356,12 @@ function targetPathTraversalRejected() {
   };
 }
 
-async function createKnownSourceSet(knownSourcePaths) {
+async function createKnownSourceSet(knownSourcePaths, fileSystem) {
   const knownSourceSet = new Set();
 
   for (const sourcePath of knownSourcePaths) {
     try {
-      knownSourceSet.add(normalizePath(await realpath(sourcePath)));
+      knownSourceSet.add(normalizePath(await fileSystem.realpath(sourcePath)));
     } catch {
       knownSourceSet.add(normalizePath(sourcePath));
     }
@@ -335,11 +370,17 @@ async function createKnownSourceSet(knownSourcePaths) {
   return knownSourceSet;
 }
 
-async function classifySymlink({ name, entryPath, knownSourceSet, diagnostics }) {
+async function classifySymlink({
+  name,
+  entryPath,
+  knownSourceSet,
+  diagnostics,
+  fileSystem,
+}) {
   let resolvedPath;
 
   try {
-    resolvedPath = normalizePath(await realpath(entryPath));
+    resolvedPath = normalizePath(await fileSystem.realpath(entryPath));
   } catch {
     diagnostics.push({
       code: "broken-symlink",
@@ -354,6 +395,17 @@ async function classifySymlink({ name, entryPath, knownSourceSet, diagnostics })
       kind: "broken-symlink",
       targetPath: normalizePath(entryPath),
     };
+  }
+
+  if (!(await canAccess(path.join(resolvedPath, "SKILL.md"), fileSystem))) {
+    diagnostics.push({
+      code: "symlink-skill-file-missing",
+      severity: "warning",
+      riskLevel: "low",
+      message: "Resolved target symlink does not contain SKILL.md.",
+      skillName: name,
+    });
+    return null;
   }
 
   if (knownSourceSet.has(resolvedPath)) {
@@ -373,8 +425,18 @@ async function classifySymlink({ name, entryPath, knownSourceSet, diagnostics })
   };
 }
 
-async function classifyDirectory({ name, entryPath, diagnostics }) {
-  const metadataResult = await readAppliedMetadata({ name, entryPath, diagnostics });
+async function classifyDirectory({
+  name,
+  entryPath,
+  diagnostics,
+  fileSystem,
+}) {
+  const metadataResult = await readAppliedMetadata({
+    name,
+    entryPath,
+    diagnostics,
+    fileSystem,
+  });
 
   if (metadataResult.invalid) {
     return {
@@ -400,9 +462,17 @@ async function classifyDirectory({ name, entryPath, diagnostics }) {
   };
 }
 
-async function readAppliedMetadata({ name, entryPath, diagnostics }) {
+async function readAppliedMetadata({
+  name,
+  entryPath,
+  diagnostics,
+  fileSystem,
+}) {
   try {
-    const text = await readFile(path.join(entryPath, APPLIED_METADATA_FILE), "utf8");
+    const text = await fileSystem.readFile(
+      path.join(entryPath, APPLIED_METADATA_FILE),
+      "utf8",
+    );
     return {
       exists: true,
       metadata: JSON.parse(text),
@@ -428,18 +498,18 @@ async function readAppliedMetadata({ name, entryPath, diagnostics }) {
   }
 }
 
-async function canAccess(filePath) {
+async function canAccess(filePath, fileSystem = { access }) {
   try {
-    await access(filePath);
+    await fileSystem.access(filePath);
     return true;
   } catch {
     return false;
   }
 }
 
-async function readOptionalDirectoryEntries(directoryPath) {
+async function readOptionalDirectoryEntries(directoryPath, fileSystem) {
   try {
-    return await readdir(directoryPath, { withFileTypes: true });
+    return await fileSystem.readdir(directoryPath, { withFileTypes: true });
   } catch (error) {
     if (error?.code === "ENOENT") {
       return [];

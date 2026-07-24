@@ -33,6 +33,97 @@ test("createRuntimeContext can build context from explicit settings without a se
   assert.equal(result.context.defaultApplyMode, "symlink");
 });
 
+test("runtime context merges active standard targets with configured targets and removes normalized duplicates", () => {
+  const result = createRuntimeContext({
+    settings: {
+      ...validSettings(),
+      enabledClients: ["codex"],
+      globalTargets: [
+        {
+          id: "configured-codex",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/home/test/.agents/skills/",
+        },
+      ],
+      projectTargetPatterns: [".agents/skills", ".claude/skills"],
+    },
+    workspaceRoots: ["/workspace/project-a"],
+    standardGlobalTargets: [
+      {
+        id: "standard-codex",
+        clientType: "codex",
+        scope: "global",
+        targetPath: "/home/test/.agents/skills",
+      },
+      {
+        id: "standard-claude",
+        clientType: "claude",
+        scope: "global",
+        targetPath: "/home/test/.claude/skills",
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.context.globalTargets.map((target) => ({
+      id: target.id,
+      clientType: target.clientType,
+      origin: target.origin,
+      targetPath: target.targetPath,
+    })),
+    [
+      {
+        id: "configured-codex",
+        clientType: "codex",
+        origin: "configured",
+        targetPath: "/home/test/.agents/skills",
+      },
+    ],
+  );
+  assert.deepEqual(
+    result.context.projectTargets.map((target) => [
+      target.clientType,
+      target.origin,
+      target.targetPath,
+    ]),
+    [["codex", "standard", "/workspace/project-a/.agents/skills"]],
+  );
+  assert.equal(
+    Object.isFrozen(result.context.globalTargets[0].capabilities),
+    true,
+  );
+});
+
+test("explicit codex legacy target is discovery-only compatibility target", () => {
+  const result = createRuntimeContext({
+    settings: {
+      ...validSettings(),
+      globalTargets: [
+        {
+          id: "legacy-codex",
+          clientType: "codex",
+          scope: "global",
+          targetPath: "/home/test/.codex/skills",
+        },
+      ],
+      projectTargetPatterns: [],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.context.globalTargets[0].origin, "compatibility");
+  assert.deepEqual(result.context.globalTargets[0].capabilities, {
+    discoverable: true,
+    applyable: false,
+    removable: false,
+    movable: false,
+    copyable: true,
+    backupable: true,
+  });
+});
+
 test("invalid default apply mode returns machine-readable validation diagnostic", () => {
   const result = createRuntimeContext({
     settings: {

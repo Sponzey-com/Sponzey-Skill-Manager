@@ -5,6 +5,7 @@ import {
   evaluateSkillShadowingPolicy,
   normalizePath,
 } from "../../domain/index.js";
+import { transitionTargetScan } from "./target-scan-state-machine.js";
 
 export async function refreshSkills({
   context,
@@ -101,19 +102,14 @@ export async function refreshSkills({
   ];
   const events = [];
   let appliedSkillCount = 0;
+  let unavailableTargetCount = 0;
 
   for (const target of targets) {
-    const targetResult = await targetStore.scanAppliedSkills({
-      targetPath: target.targetPath,
+    const targetResult = await scanTarget({
+      target,
+      targetStore,
       knownSourcePaths: indexedSources.map((source) => source.sourcePath),
     });
-
-    if (!targetResult.ok) {
-      return refreshFailed({
-        diagnostics: [targetResult.error],
-        steps: [...steps, "TargetScanFailed"],
-      });
-    }
 
     const targetDiagnostics = targetResult.diagnostics.map((diagnostic) => ({
       ...diagnostic,
@@ -121,6 +117,9 @@ export async function refreshSkills({
       targetPath: normalizePath(target.targetPath),
     }));
     diagnostics.push(...targetDiagnostics);
+    if (targetResult.state === "TargetUnavailable") {
+      unavailableTargetCount += 1;
+    }
 
     const skills = await Promise.all(
       targetResult.appliedSkills.map((appliedSkill) =>
@@ -143,6 +142,14 @@ export async function refreshSkills({
       skills,
     };
 
+    if (target.origin !== undefined) {
+      group.origin = target.origin;
+    }
+
+    if (target.capabilities !== undefined) {
+      group.capabilities = target.capabilities;
+    }
+
     if (target.workspacePath !== undefined) {
       group.workspacePath = normalizePath(target.workspacePath);
     }
@@ -154,9 +161,13 @@ export async function refreshSkills({
     appliedSkillCount += group.skills.length;
     events.push({
       level: "FieldDebugLog",
-      code: "target.scan.completed",
+      code:
+        targetResult.state === "TargetUnavailable"
+          ? "target.scan.unavailable"
+          : "target.scan.completed",
       targetId: target.id,
       scope: target.scope,
+      state: targetResult.state,
       appliedSkillCount: group.skills.length,
       diagnosticCount: targetDiagnostics.length,
     });
@@ -166,6 +177,19 @@ export async function refreshSkills({
     } else {
       globalSkills.push(group);
     }
+  }
+
+  if (unavailableTargetCount > 0) {
+    steps.push("TargetsPartiallyAvailable");
+  }
+
+  const duplicateTargetDiagnostics = detectDuplicateTargetSkills([
+    ...globalSkills,
+    ...projectSkills,
+  ]);
+  if (duplicateTargetDiagnostics.length > 0) {
+    steps.push("DetectingTargetDuplicates");
+    diagnostics.push(...duplicateTargetDiagnostics);
   }
 
   const conflictResult = evaluateSkillNameConflictPolicy({
@@ -218,6 +242,96 @@ export async function refreshSkills({
     readModel,
     events,
     steps: [...steps, "Completed"],
+  };
+}
+
+function detectDuplicateTargetSkills(groups) {
+  const firstTargetBySkill = new Map();
+  const diagnostics = [];
+
+  for (const group of groups) {
+    for (const skill of group.skills ?? []) {
+      const key = `${group.clientType}:${group.scope}:${skill.name}`;
+      const firstTarget = firstTargetBySkill.get(key);
+      if (!firstTarget) {
+        firstTargetBySkill.set(key, group);
+        continue;
+      }
+
+      diagnostics.push({
+        code: "duplicate-target-skill",
+        severity: "warning",
+        category: "conflict",
+        riskLevel: "low",
+        message:
+          "The same skill name exists in more than one target for this client.",
+        recommendation:
+          "Review both target locations and keep the intended skill before applying or removing anything.",
+        skillName: skill.name,
+        clientType: group.clientType,
+        scope: group.scope,
+        targetId: group.targetId,
+        targetPath: group.targetPath,
+        conflictingTargetId: firstTarget.targetId,
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+async function scanTarget({ target, targetStore, knownSourcePaths }) {
+  let state = transitionTargetScan("Idle", "Validate").state;
+  if (!hasText(target?.targetPath)) {
+    state = transitionTargetScan(state, "TargetInvalid").state;
+    return {
+      state,
+      appliedSkills: [],
+      diagnostics: [targetUnavailableDiagnostic()],
+    };
+  }
+
+  state = transitionTargetScan(state, "TargetValid").state;
+  const result = await targetStore.scanAppliedSkills({
+    targetPath: target.targetPath,
+    knownSourcePaths,
+  });
+
+  if (!result.ok) {
+    state = transitionTargetScan(state, "TargetFailed").state;
+    return {
+      state,
+      appliedSkills: [],
+      diagnostics: [
+        targetUnavailableDiagnostic({
+          cause: result.error?.code,
+        }),
+      ],
+    };
+  }
+
+  const diagnostics = result.diagnostics ?? [];
+  state = transitionTargetScan(
+    state,
+    diagnostics.length > 0 ? "DiagnosticsFound" : "ScanCompleted",
+  ).state;
+  return {
+    state,
+    appliedSkills: result.appliedSkills ?? [],
+    diagnostics,
+  };
+}
+
+function targetUnavailableDiagnostic({ cause } = {}) {
+  return {
+    code: "target-unavailable",
+    severity: "warning",
+    category: "target",
+    riskLevel: "low",
+    message: "Existing skills could not be read from this target.",
+    recommendation:
+      "Check that the target exists and is readable, then refresh the skills view.",
+    ...(cause ? { cause } : {}),
   };
 }
 
@@ -731,4 +845,8 @@ function refreshFailed({ diagnostics, steps }) {
     ],
     steps,
   };
+}
+
+function hasText(value) {
+  return typeof value === "string" && value.trim().length > 0;
 }

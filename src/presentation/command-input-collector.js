@@ -1249,7 +1249,10 @@ async function collectRestoreBackupInput({
     const targetChoice = await chooseRequiredQuickPick({
       commandId,
       window,
-      items: removableTargetChoices(modelResult.value),
+      items: operationalTargetChoices({
+        readModel: modelResult.value,
+        commandId,
+      }),
       placeHolder: "Select target to restore backup to",
       unavailableMessage: "No skill targets are available.",
     });
@@ -1718,7 +1721,10 @@ async function collectAppliedSkillSelectionInput({
     const targetChoice = await chooseRequiredQuickPick({
       commandId,
       window,
-      items: removableTargetChoices(readModel.value),
+      items: operationalTargetChoices({
+        readModel: readModel.value,
+        commandId,
+      }),
       placeHolder: promptText.targetPlaceHolder,
       unavailableMessage: "No skill targets are available.",
     });
@@ -2167,22 +2173,19 @@ function targetChoices({ readModel, targetScope, source = null }) {
       ? readModel?.projectSkills ?? []
       : readModel?.globalSkills ?? [];
 
-  return groups.map((group) => ({
+  return groups
+    .filter((group) => targetAllows(group, "applyable"))
+    .map((group) => ({
     label: targetChoiceLabel(group),
     description: targetChoiceDescriptionWithCompatibility({ group, source }),
-    value: {
-      id: group.targetId,
-      clientType: group.clientType,
-      scope: group.scope,
-      targetPath: group.targetPath,
-      workspacePath: group.workspacePath,
-      targetPattern: group.targetPattern,
-    },
-  }));
+    value: targetFromGroup(group),
+    }));
 }
 
 function globalRepositoryChoices(readModel) {
-  return (readModel?.globalSkills ?? []).map((group) => ({
+  return (readModel?.globalSkills ?? [])
+    .filter((group) => group.origin !== "standard")
+    .map((group) => ({
     label: group.targetId,
     description: group.clientType,
     detail: group.targetPath,
@@ -2196,6 +2199,9 @@ function projectRepositoryChoices(readModel) {
   const choicesByPattern = new Map();
 
   for (const group of readModel?.projectSkills ?? []) {
+    if (group.origin === "standard") {
+      continue;
+    }
     const targetPattern = group.targetPattern ?? targetPatternFromGroup(group);
 
     if (!hasText(targetPattern) || choicesByPattern.has(targetPattern)) {
@@ -2214,8 +2220,11 @@ function projectRepositoryChoices(readModel) {
   return [...choicesByPattern.values()];
 }
 
-function removableTargetChoices(readModel) {
-  return [...(readModel?.globalSkills ?? []), ...(readModel?.projectSkills ?? [])].map(
+function operationalTargetChoices({ readModel, commandId }) {
+  const capability = capabilityForCommand(commandId);
+  return [...(readModel?.globalSkills ?? []), ...(readModel?.projectSkills ?? [])]
+    .filter((group) => targetAllows(group, capability))
+    .map(
     (group) => ({
       label: targetChoiceLabel(group),
       description: targetChoiceDescription(group),
@@ -2224,7 +2233,27 @@ function removableTargetChoices(readModel) {
         group,
       },
     }),
-  );
+    );
+}
+
+function capabilityForCommand(commandId) {
+  if (commandId === "sponzeySkills.restoreBackupToTarget") {
+    return "applyable";
+  }
+  if (commandId === "sponzeySkills.moveAppliedSkillToMainRepository") {
+    return "movable";
+  }
+  if (commandId === "sponzeySkills.copyAppliedSkillToMainRepository") {
+    return "copyable";
+  }
+  if (commandId === "sponzeySkills.backupAppliedSkillToMainRepository") {
+    return "backupable";
+  }
+  return "removable";
+}
+
+function targetAllows(group, capability) {
+  return group?.capabilities?.[capability] !== false;
 }
 
 function appliedSkillChoices(group) {
@@ -2437,7 +2466,7 @@ function targetGroupForTarget({ readModel, target }) {
 }
 
 function targetFromGroup(group) {
-  return {
+  const target = {
     id: group.targetId,
     clientType: group.clientType,
     scope: group.scope,
@@ -2445,6 +2474,15 @@ function targetFromGroup(group) {
     workspacePath: group.workspacePath,
     targetPattern: group.targetPattern,
   };
+
+  if (group.origin !== undefined) {
+    target.origin = group.origin;
+  }
+  if (group.capabilities !== undefined) {
+    target.capabilities = group.capabilities;
+  }
+
+  return target;
 }
 
 function targetPatternFromGroup(group) {

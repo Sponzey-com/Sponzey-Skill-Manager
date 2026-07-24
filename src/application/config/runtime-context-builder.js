@@ -1,12 +1,49 @@
+import { createSkillTarget } from "../../domain/index.js";
+
 const allowedApplyModes = new Set(["symlink", "copy"]);
 
-export async function buildRuntimeContext({ settingsReader, workspaceRoots = [] }) {
+const compatibilityCapabilities = Object.freeze({
+  discoverable: true,
+  applyable: false,
+  removable: false,
+  movable: false,
+  copyable: true,
+  backupable: true,
+});
+
+export async function buildRuntimeContext({
+  settingsReader,
+  workspaceRoots = [],
+  standardGlobalTargets = [],
+}) {
   const settings = await settingsReader.readSettings();
-  return createRuntimeContext({ settings, workspaceRoots });
+  return createRuntimeContext({
+    settings,
+    workspaceRoots,
+    standardGlobalTargets,
+  });
 }
 
-export function createRuntimeContext({ settings, workspaceRoots = [] }) {
-  const diagnostics = validateSettings({ settings, workspaceRoots });
+export function createRuntimeContext({
+  settings,
+  workspaceRoots = [],
+  standardGlobalTargets = [],
+}) {
+  const globalTargets = buildGlobalTargets({
+    configuredTargets: settings.globalTargets,
+    standardGlobalTargets,
+    enabledClients: settings.enabledClients,
+  });
+  const projectTargets = buildProjectTargets({
+    workspaceRoots,
+    projectTargetPatterns: settings.projectTargetPatterns,
+    enabledClients: settings.enabledClients,
+  });
+  const diagnostics = validateSettings({
+    settings,
+    globalTargets,
+    projectTargets,
+  });
 
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return {
@@ -21,15 +58,9 @@ export function createRuntimeContext({ settings, workspaceRoots = [] }) {
     context: deepFreeze({
       mainRepositoryPath: normalizePath(settings.mainRepositoryPath),
       enabledClients: [...settings.enabledClients],
-      globalTargets: settings.globalTargets.map((target) => ({
-        ...target,
-        targetPath: normalizePath(target.targetPath),
-      })),
+      globalTargets,
       projectTargetPatterns: [...settings.projectTargetPatterns],
-      projectTargets: buildProjectTargets({
-        workspaceRoots,
-        projectTargetPatterns: settings.projectTargetPatterns,
-      }),
+      projectTargets,
       workspaceRoots: workspaceRoots.map(normalizePath),
       defaultApplyMode: settings.defaultApplyMode,
       riskPolicy: { ...settings.riskPolicy },
@@ -40,7 +71,7 @@ export function createRuntimeContext({ settings, workspaceRoots = [] }) {
   };
 }
 
-function validateSettings({ settings, workspaceRoots }) {
+function validateSettings({ settings, globalTargets, projectTargets }) {
   const diagnostics = [];
 
   if (!allowedApplyModes.has(settings.defaultApplyMode)) {
@@ -55,11 +86,8 @@ function validateSettings({ settings, workspaceRoots }) {
 
   const mainRepositoryPath = normalizePath(settings.mainRepositoryPath);
   const targetPaths = [
-    ...settings.globalTargets.map((target) => normalizePath(target.targetPath)),
-    ...buildProjectTargets({
-      workspaceRoots,
-      projectTargetPatterns: settings.projectTargetPatterns,
-    }).map((target) => target.targetPath),
+    ...globalTargets.map((target) => target.targetPath),
+    ...projectTargets.map((target) => target.targetPath),
   ];
 
   if (hasText(mainRepositoryPath)) {
@@ -81,23 +109,118 @@ function validateSettings({ settings, workspaceRoots }) {
   return diagnostics;
 }
 
-function buildProjectTargets({ workspaceRoots, projectTargetPatterns }) {
+function buildGlobalTargets({
+  configuredTargets,
+  standardGlobalTargets,
+  enabledClients,
+}) {
+  const targetsByKey = new Map();
+
+  for (const target of standardGlobalTargets) {
+    if (!enabledClients.includes(target.clientType)) {
+      continue;
+    }
+
+    const value = targetValue({
+      ...target,
+      id:
+        target.id ??
+        `global:${target.clientType}:${normalizePath(target.targetPath)}`,
+      scope: "global",
+      origin: "standard",
+    });
+    targetsByKey.set(targetKey(value), value);
+  }
+
+  for (const target of configuredTargets) {
+    const origin =
+      target.origin ?? configuredTargetOrigin(target.targetPath);
+    const value = targetValue({
+      ...target,
+      scope: "global",
+      origin,
+      capabilities:
+        origin === "compatibility"
+          ? compatibilityCapabilities
+          : target.capabilities,
+    });
+    targetsByKey.set(targetKey(value), value);
+  }
+
+  return [...targetsByKey.values()];
+}
+
+function buildProjectTargets({
+  workspaceRoots,
+  projectTargetPatterns,
+  enabledClients,
+}) {
   const targets = [];
 
   for (const workspaceRoot of workspaceRoots) {
     for (const pattern of projectTargetPatterns) {
-      targets.push({
-        id: `project:${normalizePath(workspaceRoot)}:${pattern}`,
-        clientType: clientTypeForPattern(pattern),
-        scope: "project",
-        workspacePath: normalizePath(workspaceRoot),
-        targetPattern: pattern,
-        targetPath: joinPath(workspaceRoot, pattern),
+      const clientType = clientTypeForPattern(pattern);
+      if (!enabledClients.includes(clientType)) {
+        continue;
+      }
+
+      const origin = configuredTargetOrigin(pattern, {
+        standardPatterns: [".agents/skills", ".claude/skills"],
       });
+      targets.push(
+        targetValue({
+          id: `project:${normalizePath(workspaceRoot)}:${pattern}`,
+          clientType,
+          scope: "project",
+          workspacePath: normalizePath(workspaceRoot),
+          targetPattern: pattern,
+          targetPath: joinPath(workspaceRoot, pattern),
+          origin,
+          capabilities:
+            origin === "compatibility"
+              ? compatibilityCapabilities
+              : undefined,
+        }),
+      );
     }
   }
 
   return targets;
+}
+
+function targetValue(target) {
+  const result = createSkillTarget(target);
+  if (!result.ok) {
+    throw new TypeError(result.diagnostics[0]?.message ?? "Invalid skill target.");
+  }
+
+  return Object.freeze({
+    ...result.value,
+    ...(target.workspacePath
+      ? { workspacePath: normalizePath(target.workspacePath) }
+      : {}),
+    ...(target.targetPattern ? { targetPattern: target.targetPattern } : {}),
+  });
+}
+
+function targetKey(target) {
+  return `${target.clientType}:${target.scope}:${target.targetPath}`;
+}
+
+function configuredTargetOrigin(targetPath, { standardPatterns = [] } = {}) {
+  const normalized = normalizePath(targetPath);
+  if (standardPatterns.includes(normalized)) {
+    return "standard";
+  }
+
+  if (
+    normalized === ".codex/skills" ||
+    normalized.endsWith("/.codex/skills")
+  ) {
+    return "compatibility";
+  }
+
+  return "configured";
 }
 
 function clientTypeForPattern(pattern) {

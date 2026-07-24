@@ -37,7 +37,51 @@ export function createSkillSource({ id, name, sourcePath }) {
   };
 }
 
-export function createSkillTarget({ id, clientType, scope, targetPath }) {
+const targetOrigins = new Set(["standard", "configured", "compatibility"]);
+
+const defaultTargetCapabilities = Object.freeze({
+  discoverable: true,
+  applyable: true,
+  removable: true,
+  movable: true,
+  copyable: true,
+  backupable: true,
+});
+
+export function createSkillTarget({
+  id,
+  clientType,
+  scope,
+  targetPath,
+  origin = "configured",
+  capabilities = {},
+}) {
+  const normalizedCapabilities = Object.freeze({
+    ...defaultTargetCapabilities,
+    ...capabilities,
+  });
+
+  if (
+    !targetOrigins.has(origin) ||
+    (origin === "compatibility" &&
+      (normalizedCapabilities.applyable ||
+        normalizedCapabilities.removable ||
+        normalizedCapabilities.movable))
+  ) {
+    return {
+      ok: false,
+      value: null,
+      diagnostics: [
+        {
+          code: "invalid-target-capabilities",
+          severity: "error",
+          message:
+            "Compatibility targets must not allow apply, remove, or move operations.",
+        },
+      ],
+    };
+  }
+
   return {
     ok: true,
     value: Object.freeze({
@@ -46,6 +90,8 @@ export function createSkillTarget({ id, clientType, scope, targetPath }) {
       clientType,
       scope,
       targetPath: normalizePath(targetPath),
+      origin,
+      capabilities: normalizedCapabilities,
     }),
     diagnostics: [],
   };

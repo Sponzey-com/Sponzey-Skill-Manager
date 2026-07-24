@@ -10,6 +10,7 @@ export { evaluateDiagnosticRemediationActionTransition } from "./diagnostics/rem
 export { routeLogEvents } from "./logging/log-event-router.js";
 export { createRefreshInvalidationController } from "./watch/refresh-invalidation-controller.js";
 export { refreshSkills } from "./refresh/refresh-skills.js";
+export { transitionTargetScan } from "./refresh/target-scan-state-machine.js";
 export {
   addGlobalRepository,
   addProjectRepository,

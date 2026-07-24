@@ -42,6 +42,43 @@ test("domain value objects and entities are frozen and framework independent", (
   assert.equal(Object.isFrozen(target.value), true);
 });
 
+test("skill target freezes origin and capabilities and rejects unsafe compatibility operations", () => {
+  const target = createSkillTarget({
+    id: "compatibility:codex",
+    clientType: "codex",
+    scope: "global",
+    targetPath: "/home/test/.codex/skills",
+    origin: "compatibility",
+    capabilities: {
+      discoverable: true,
+      applyable: false,
+      removable: false,
+      movable: false,
+      copyable: true,
+      backupable: true,
+    },
+  });
+
+  assert.equal(target.ok, true);
+  assert.equal(target.value.origin, "compatibility");
+  assert.equal(Object.isFrozen(target.value.capabilities), true);
+
+  const unsafeTarget = createSkillTarget({
+    id: "unsafe-compatibility",
+    clientType: "codex",
+    scope: "global",
+    targetPath: "/home/test/.codex/skills",
+    origin: "compatibility",
+    capabilities: {
+      discoverable: true,
+      applyable: true,
+    },
+  });
+
+  assert.equal(unsafeTarget.ok, false);
+  assert.equal(unsafeTarget.diagnostics[0].code, "invalid-target-capabilities");
+});
+
 test("built-in analyzer policy pack exposes frozen rule catalog without external configuration", () => {
   const policyPack = createBuiltInAnalyzerPolicyPack();
 

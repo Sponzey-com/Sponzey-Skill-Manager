@@ -656,6 +656,65 @@ test("collectCommandInput annotates apply targets with explicit compatibility", 
   assert.equal(result.ok, true);
 });
 
+test("collectCommandInput excludes discovery-only compatibility targets from apply choices", async () => {
+  const calls = [];
+  const standardGroup = {
+    ...applyReadModel().globalSkills[0],
+    origin: "standard",
+    capabilities: {
+      discoverable: true,
+      applyable: true,
+    },
+  };
+  const compatibilityGroup = {
+    targetId: "compatibility:codex",
+    clientType: "codex",
+    scope: "global",
+    targetPath: "/home/test/.codex/skills",
+    origin: "compatibility",
+    capabilities: {
+      discoverable: true,
+      applyable: false,
+      removable: false,
+      movable: false,
+      copyable: true,
+      backupable: true,
+    },
+    skills: [],
+  };
+
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.applySkillToGlobalTarget",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "alpha",
+          value: applyReadModel().mainRepositorySkills[0],
+        },
+        {
+          label: "global:codex",
+          value: globalTarget(),
+        },
+        { label: "copy", value: "copy" },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...applyReadModel(),
+        globalSkills: [standardGroup, compatibilityGroup],
+      };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls[1].items.map((item) => item.label),
+    ["global:codex"],
+  );
+});
+
 test("collectCommandInput annotates apply targets from compatibility diagnostics and custom clients", async () => {
   const calls = [];
   const codexOnlySource = {
@@ -901,6 +960,55 @@ test("collectCommandInput prompts missing remove target and applied skill", asyn
       },
     },
   });
+});
+
+test("collectCommandInput excludes compatibility targets from remove choices", async () => {
+  const calls = [];
+  const standardGroup = {
+    ...removeReadModel().globalSkills[0],
+    origin: "standard",
+    capabilities: { removable: true },
+  };
+  const compatibilityGroup = {
+    ...standardGroup,
+    targetId: "compatibility:codex",
+    targetPath: "/home/test/.codex/skills",
+    origin: "compatibility",
+    capabilities: { removable: false },
+  };
+
+  const result = await collectCommandInput({
+    commandId: "sponzeySkills.removeAppliedSkill",
+    input: {},
+    window: fakeQuickPickWindow({
+      calls,
+      responses: [
+        {
+          label: "global:codex",
+          value: {
+            target: globalTarget(),
+            group: standardGroup,
+          },
+        },
+        {
+          label: "alpha",
+          value: appliedAlphaSkill(),
+        },
+      ],
+    }),
+    async loadReadModel() {
+      return {
+        ...removeReadModel(),
+        globalSkills: [standardGroup, compatibilityGroup],
+      };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    calls[0].items.map((item) => item.label),
+    ["global:codex", "codex project"],
+  );
 });
 
 test("collectCommandInput preserves existing remove DTO without loading read model", async () => {
